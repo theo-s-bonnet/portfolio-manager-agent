@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "investment_agent"
+version = "1.0.0"
+description = "Rule-based stock screener (TradingView + Yahoo Finance), the first building block of a planned LLM investment agent."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "theo-s-bonnet" }]
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "yfinance",
+    "tradingview-screener",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.urls]
+Repository = "https://github.com/theo-s-bonnet/portfolio-manager-agent"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = '-m "not network"'
+markers = [
+    "network: test that calls a real source (TradingView, Yahoo); run with pytest -m network",
+]

@@ -1,0 +1,58 @@
+# TradingView (EXCHANGE:SYMBOL) -> Yahoo mapping.
+# Each suffix was checked against one known ticker (same currency, same price).
+# An exchange missing from these tables has no mapping: its stocks are excluded
+# and counted by exchange in the report.
+
+# Hand-written exceptions (take precedence): "EXCHANGE:SYMBOL": "YAHOO_TICKER"
+exceptions: {}
+
+# Yahoo suffix per TradingView exchange ("" = no suffix).
+suffixes:
+  NYSE: ""
+  NASDAQ: ""
+  AMEX: ""
+  CBOE: ""
+  TSX: .TO
+  TSXV: .V
+  CSE: .CN
+  NEO: .NE
+  LSE: .L
+  AQUIS: .AQ
+  XETR: .DE
+  FWB: .F
+  MUN: .MU
+  HAM: .HM
+  DUS: .DU
+  SWB: .SG
+  HAN: .HA
+  BME: .MC
+  MIL: .MI
+  VIE: .VI
+  SIX: .SW
+  OMXSTO: .ST
+  OMXCOP: .CO
+  OMXHEX: .HE
+  OMXICE: .IC
+  OMXTSE: .TL
+  OMXRSE: .RG
+  OMXVSE: .VS
+  OSL: .OL
+  LUXSE: .LU
+  ATHEX: .AT
+  GPW: .WA
+  PSECZ: .PR
+  BET: .BD
+  BVB: .RO
+  # Unverified or unknown to Yahoo (no mapping):
+  # OTC (excluded by R3.1), BER, NGM (Yahoo price about 10% off), BX, LJSE, ZSE,
+  # CSECY, BSESOF, BSSE, GETTEX, LS, LSX, TRADEGATE.
+
+# Exchanges whose suffix depends on the TradingView market.
+suffixes_by_market:
+  EURONEXT:
+    france: .PA
+    netherlands: .AS
+    belgium: .BR
+    portugal: .LS
+    ireland: .IR
+    norway: .OL
