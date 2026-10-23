@@ -8,8 +8,10 @@ No network call in this folder: the engine downloads, the strategy computes.
 
 from pathlib import Path
 
+from investment_agent.engine.statuses import MAPPING_COLUMN, MAPPING_LABEL
 from investment_agent.strategies.higgons.filters import (
-    CATEGORY_ISIN, CATEGORY_PE_FALLBACK, CATEGORY_ROE_FALLBACK, CATEGORY_ROE_NEGATIVE, filter_tv)
+    CATEGORY_ISIN, CATEGORY_PE_FALLBACK, CATEGORY_ROE_FALLBACK, CATEGORY_ROE_NEGATIVE, PE_FALLBACK,
+    ROE_FALLBACK, filter_tv)
 from investment_agent.strategies.higgons.scoring import COMPONENT_COLUMNS, pct_column, rank
 
 TITLE = "Higgons"
@@ -44,26 +46,34 @@ REQUIRED_KEYS: dict[str, list[str]] = {
 
 # --- presentation in the report (engine/report.py) ------------------------------------
 
-# Funnel steps, in evaluation order. Every rule is evaluated for every stock; the report
-# counts a stock at the first step it fails. Data guards come last, followed by the engine
-# guard (Yahoo ticker available).
-TV_STEPS = [
-    ("R3.1", "R3.1 PEA universe: market, headquarters, primary listing"),
-    ("R3.2", "R3.2 market cap"),
-    ("R3.3", "R3.3 liquidity (approximate)"),
-    ("R3.4", "R3.4 stocks only (preferred shares excluded outside Germany)"),
-    ("R3.5", "R3.5 banks and insurers excluded"),
-    ("R4.1", "R4.1 retained P/E"),
-    ("R4.3", "R4.3 5-year revenue growth"),
-    ("R4.4", "R4.4 net debt / EBITDA"),
-    ("R4.5", "R4.5 price above the EMA"),
-    ("R4.6", "R4.6 6-month performance"),
+# Funnel, in evaluation order: (group label, [(status column, label)]). Every rule is evaluated
+# for every stock; the report counts a stock at the first step it fails. The data guards come
+# last, so that their rows count the good candidates lost because of the data. The Yahoo
+# ticker guard is an engine step (no download).
+FUNNEL: list[tuple[str, list[tuple[str, str]]]] = [
+    ("Universe", [
+        ("R3.1", "R3.1 PEA universe: market, headquarters, primary listing"),
+        ("R3.2", "R3.2 market cap"),
+        ("R3.3", "R3.3 liquidity (approximate)"),
+        ("R3.4", "R3.4 stocks only (preferred shares excluded outside Germany)"),
+        ("R3.5", "R3.5 banks and insurers excluded"),
+    ]),
+    ("Selection criteria", [
+        ("R4.1", "R4.1 retained P/E"),
+        ("R4.3", "R4.3 5-year revenue growth"),
+        ("R4.4", "R4.4 net debt / EBITDA"),
+        ("R4.5", "R4.5 price above the EMA"),
+        ("R4.6", "R4.6 6-month performance"),
+    ]),
+    ("Data guards", [
+        ("R3.6", "R3.6 price history (first TradingView bar)"),
+        ("R4.11", "R4.11 data needed by the score"),
+        ("R4.12", "R4.12 EBITDA and EPS denominators"),
+        (MAPPING_COLUMN, MAPPING_LABEL),
+    ]),
 ]
-GUARD_STEPS = [
-    ("R3.6", "R3.6 price history (first TradingView bar)"),
-    ("R4.11", "R4.11 data needed by the score"),
-    ("R4.12", "R4.12 EBITDA and EPS denominators"),
-]
+FUNNEL_NOTE = ("Data guards are not strategy rules: they exclude stocks whose data is missing or "
+               "inconsistent.")
 DESCRIPTION_COLUMNS = [("Name", "name"), ("Country", "country"), ("Sector", "sector")]
 # Columns read by the engine: exchange rates to download, country of the eligible stocks.
 CURRENCY_COLUMNS = ["currency", "reporting_currency"]
@@ -77,14 +87,31 @@ _COMPONENT_DISPLAY = {
     "growth": ("Rev. CAGR 5y", "pct"),
     "balance_sheet": ("ND/EBITDA", "number"),
 }
+# Fallback values flagged in the ranking and counted under the funnel.
+_COMPONENT_MARKERS = {
+    "value": {
+        "marker_column": "pe_source", "marker_value": PE_FALLBACK, "marker": "\u2020",
+        "marker_note": "\u2020 fallback: market cap / TTM net income (TradingView P/E missing)",
+        "marker_count": "Retained P/E: {n} stocks of the universe use the fallback (TradingView P/E missing).",
+    },
+    "quality": {
+        "marker_column": "roe_source", "marker_value": ROE_FALLBACK, "marker": "\u2021",
+        "marker_note": ("\u2021 fallback: TTM net income / shareholders' equity of the last quarter "
+                        "(TradingView ROE missing)"),
+        "marker_count": "Retained ROE: {n} stocks of the universe use the fallback (TradingView ROE missing).",
+    },
+}
 
 
-def components(cfg: dict) -> list[tuple[str, str, str, str]]:
-    """(label, value column, percentile column, format) of each score component."""
+def components(cfg: dict) -> list[dict]:
+    """Fields of engine.report.Component for each score component: label, value column,
+    percentile column, format, and the optional fallback marker."""
     result = []
     for component in cfg["score"]["weights"]:
         label, format_ = _COMPONENT_DISPLAY[component]
-        result.append((label, COMPONENT_COLUMNS[component], pct_column(component), format_))
+        result.append({"label": label, "column": COMPONENT_COLUMNS[component],
+                       "pct_column": pct_column(component), "format": format_,
+                       **_COMPONENT_MARKERS.get(component, {})})
     return result
 
 
@@ -95,6 +122,6 @@ def tv_fields(cfg: dict) -> dict[str, str]:
 
 __all__ = [
     "WARNING_CATEGORIES", "CONFIG_PATH", "REQUIRED_KEYS", "COUNTRY_COLUMN", "DESCRIPTION_COLUMNS",
-    "CURRENCY_COLUMNS", "TV_STEPS", "GUARD_STEPS", "TITLE", "tv_fields", "rank", "components",
+    "CURRENCY_COLUMNS", "FUNNEL", "FUNNEL_NOTE", "TITLE", "tv_fields", "rank", "components",
     "filter_tv",
 ]

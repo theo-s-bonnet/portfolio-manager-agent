@@ -29,6 +29,47 @@ def test_rule_not_implemented_listed():
     assert "| R4.1 |" not in section          # rule implemented without a limitation: not listed
 
 
+def test_removed_rule_not_listed():
+    cfg = config()
+    assert cfg["rules"]["R4.7"]["status"] == "removed"
+    text = render_report(fake_result(three_stocks()), cfg, META)
+    section = text.split("## Rules not applied")[1]
+    assert "R4.7" not in section and "R4.2" not in section
+
+
+def test_funnel_groups_in_order():
+    text = render_report(fake_result(three_stocks()), config(), META)
+    summary = text.split("## Summary")[1].split("## Ranking")[0]
+    headers = [l for l in summary.splitlines() if l.startswith("| **") and "Eligible" not in l]
+    assert headers == ["| **Universe** |  |  |  |", "| **Selection criteria** |  |  |  |",
+                       "| **Data guards** |  |  |  |"]
+    assert summary.index("R3.5 banks") < summary.index("**Selection criteria**") < summary.index("R4.1")
+    assert summary.index("R4.6") < summary.index("**Data guards**") < summary.index("R3.6")
+
+
+def test_pe_fallback_marked_in_the_ranking():
+    nan = float("nan")
+    res = fake_result([tv_stock(tv_ticker="XETR:FBK", yahoo_ticker="FBK.DE", pe_ttm=nan), tv_stock()])
+    text = render_report(res, config(), META)
+    assert "| 10.0\u2020 (" in text                       # retained P/E 1e9 / 1e8, fallback
+    assert "\u2020 fallback: market cap / TTM net income (TradingView P/E missing)" in text
+    assert "Retained P/E: 1 stocks of the universe use the fallback (TradingView P/E missing)." in text
+    assert "\u2021 fallback" not in text
+
+
+def test_roe_fallback_marked_in_the_ranking():
+    nan = float("nan")
+    res = fake_result([tv_stock(tv_ticker="XETR:FBK", yahoo_ticker="FBK.DE", roe_ttm=nan), tv_stock()])
+    text = render_report(res, config(), META)
+    assert "| 20.0%\u2021 (" in text                      # 1e8 / 5e8
+    assert ("\u2021 fallback: TTM net income / shareholders' equity of the last quarter "
+            "(TradingView ROE missing)") in text
+    assert "Retained ROE: 1 stocks of the universe use the fallback (TradingView ROE missing)." in text
+    plain = render_report(fake_result([tv_stock()]), config(), META)
+    assert "\u2021 fallback" not in plain and "\u2020 fallback" not in plain
+    assert "Retained ROE: 0 stocks" in plain
+
+
 def test_no_eligible_stock():
     res = fake_result([tv_stock(pe_ttm=30.0)])
     text = render_report(res, config(), META)

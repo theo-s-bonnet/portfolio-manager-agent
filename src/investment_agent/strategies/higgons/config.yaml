@@ -81,28 +81,28 @@ technical:                                        # data-quality parameters, not
                          IS, IT, LI, LT, LU, LV, MT, NL, "NO", PL, PT, RO, SE, SI, SK]     # CS: legacy Czech prefix; "NO" quoted (YAML boolean)
 
 rules:                                            # register read by the report
-  R3.1:   {status: implemented, note: "headquarters country from TradingView (may be the operational seat); PEA eligibility confirmed with the broker"}
-  R3.2:   {status: implemented}
-  R3.3:   {status: implemented, note: "90-day average volume x last price"}
-  R3.4:   {status: implemented, note: "SPACs listed as common stock cannot be detected"}
-  R3.5:   {status: implemented}
-  R3.6:   {status: implemented}
-  R4.1:   {status: implemented}
-  R4.2:   {status: implemented}
-  R4.3:   {status: implemented}
-  R4.4:   {status: implemented}
-  R4.5:   {status: implemented}
-  R4.6:   {status: implemented}
-  R4.7:   {status: implemented}
-  R4.8:   {status: implemented}
-  R4.9:   {status: implemented}
-  R4.10a: {status: implemented}
-  R4.10b: {status: implemented}
-  R4.11:  {status: implemented}
-  R4.12:  {status: implemented}
+  R3.1:   {status: implemented, kind: universe, note: "headquarters country from TradingView (may be the operational seat); PEA eligibility confirmed with the broker"}
+  R3.2:   {status: implemented, kind: universe}
+  R3.3:   {status: implemented, kind: universe, note: "90-day average volume x last price"}
+  R3.4:   {status: implemented, kind: universe, note: "SPACs listed as common stock cannot be detected"}
+  R3.5:   {status: implemented, kind: universe}
+  R4.1:   {status: implemented, kind: criterion}
+  R4.3:   {status: implemented, kind: criterion}
+  R4.4:   {status: implemented, kind: criterion}
+  R4.5:   {status: implemented, kind: criterion}
+  R4.6:   {status: implemented, kind: criterion}
+  R3.6:   {status: implemented, kind: data_guard}
+  R4.11:  {status: implemented, kind: data_guard}
+  R4.12:  {status: implemented, kind: data_guard}
+  R4.2:   {status: removed, reason: "no longer a filter; ROE stays in the score"}
+  R4.7:   {status: removed, reason: "debt trajectory shown in the analysis notes, without veto"}
+  R4.8:   {status: removed, reason: "redundant with P/E > 0 and EPS > 0"}
+  R4.9:   {status: removed, reason: "penalised buybacks and high dividends"}
+  R4.10a: {status: removed, reason: "dilution is no longer a filter"}
+  R4.10b: {status: removed, reason: "becomes exit rule S5 for held positions"}
   R1:     {status: not_implemented, version: out_of_scope, reason: "overall allocation, checked manually"}
   R2.4:   {status: not_implemented, version: V3}
   R6:     {status: not_implemented, version: V5, reason: "portfolio construction"}
-  R8:     {status: not_implemented, version: V5, reason: "allocation between brokerage accounts"}
+  R8:     {status: not_implemented, version: V3, reason: "PEA contribution ceiling and currency exposure"}
   S1-S5:  {status: not_implemented, version: V3, reason: "positions and exit rules (S2 in V6)"}
   R10:    {status: not_implemented, version: V3, reason: "trade journal"}

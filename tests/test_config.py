@@ -21,7 +21,9 @@ MINIMAL_CONFIG = {
     },
     "tradingview_fields": {"pe_ttm": "price_earnings_ttm"},
     "technical": {"comparison_tolerance": 1.0e-9},
-    "rules": {"R4.1": {"status": "implemented"}, "R6": {"status": "not_implemented", "version": "V5"}},
+    "rules": {"R4.1": {"status": "implemented", "kind": "criterion"},
+              "R4.2": {"status": "removed", "reason": "no longer a filter"},
+              "R6": {"status": "not_implemented", "version": "V5"}},
 }
 
 
@@ -76,6 +78,30 @@ def test_rule_not_implemented_without_version():
     cfg["rules"]["R6"] = {"status": "not_implemented"}
     with pytest.raises(InvalidConfig, match="R6"):
         validate_config(cfg, TEST_KEYS)
+
+
+def test_removed_rule_without_reason():
+    cfg = copy.deepcopy(MINIMAL_CONFIG)
+    cfg["rules"]["R4.2"] = {"status": "removed"}
+    with pytest.raises(InvalidConfig, match="R4.2: reason missing"):
+        validate_config(cfg, TEST_KEYS)
+
+
+def test_implemented_rule_without_a_valid_kind():
+    for desc in ({"status": "implemented"}, {"status": "implemented", "kind": "filter"}):
+        cfg = copy.deepcopy(MINIMAL_CONFIG)
+        cfg["rules"]["R4.1"] = desc
+        with pytest.raises(InvalidConfig, match="R4.1.kind"):
+            validate_config(cfg, TEST_KEYS)
+
+
+def test_typespec_exempt_markets_required():
+    from investment_agent.strategies.higgons import CONFIG_PATH, REQUIRED_KEYS
+
+    cfg = load_config(CONFIG_PATH, REQUIRED_KEYS)
+    del cfg["universe"]["typespec_exempt_markets"]
+    with pytest.raises(InvalidConfig, match="universe.typespec_exempt_markets"):
+        validate_config(cfg, REQUIRED_KEYS)
 
 
 def test_missing_file(tmp_path):
