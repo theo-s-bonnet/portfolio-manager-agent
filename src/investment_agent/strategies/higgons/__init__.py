@@ -8,7 +8,7 @@ No network call in this folder: the engine downloads, the strategy computes.
 
 from pathlib import Path
 
-from investment_agent.strategies.higgons.filters import CATEGORY_ISIN, filter_tv
+from investment_agent.strategies.higgons.filters import CATEGORY_ISIN, CATEGORY_PE_FALLBACK, filter_tv
 from investment_agent.strategies.higgons.scoring import COMPONENT_COLUMNS, pct_column, rank
 
 TITLE = "Higgons"
@@ -24,9 +24,8 @@ REQUIRED_KEYS: dict[str, list[str]] = {
         "price_history_months",
     ],
     "filters": [
-        "pe_ttm_max", "roe_ttm_min_pct", "revenue_cagr_5y_min_pct", "net_debt_ebitda_max",
-        "ema_period", "ema_entry_pct", "perf_6m_min_pct", "debt_to_equity_decrease_min_points",
-        "dilution_annual_max_pct", "dilution_years", "dilution_recent_max_pct",
+        "pe_max", "revenue_cagr_5y_min_pct", "net_debt_ebitda_max", "ema_period", "ema_entry_pct",
+        "perf_6m_min_pct",
     ],
     "score": ["weights", "direction"],
     "tradingview_fields": [
@@ -53,24 +52,22 @@ TV_STEPS = [
     ("R3.3", "R3.3 liquidity (approximate)"),
     ("R3.4", "R3.4 stocks only (preferred shares excluded outside Germany)"),
     ("R3.5", "R3.5 banks and insurers excluded"),
-    ("R4.1", "R4.1 P/E TTM"),
-    ("R4.2", "R4.2 ROE"),
+    ("R4.1", "R4.1 retained P/E"),
     ("R4.3", "R4.3 5-year revenue growth"),
     ("R4.4", "R4.4 net debt / EBITDA"),
     ("R4.5", "R4.5 price above the EMA"),
     ("R4.6", "R4.6 6-month performance"),
-    ("R4.8", "R4.8 TTM net income"),
-    ("R4.12_tv", "R4.12 EBITDA and EPS denominators"),
 ]
 GUARD_STEPS = [
     ("R3.6", "R3.6 price history (first TradingView bar)"),
+    ("R4.12", "R4.12 EBITDA and EPS denominators"),
 ]
 DESCRIPTION_COLUMNS = [("Name", "name"), ("Country", "country"), ("Sector", "sector")]
 # Columns read by the engine: exchange rates to download, country of the eligible stocks.
 CURRENCY_COLUMNS = ["currency", "reporting_currency"]
 COUNTRY_COLUMN = "country"
 # Strategy warning categories (column `warnings` filled by filter_tv), in report order.
-WARNING_CATEGORIES = [CATEGORY_ISIN]
+WARNING_CATEGORIES = [CATEGORY_PE_FALLBACK, CATEGORY_ISIN]
 _COMPONENT_DISPLAY = {
     "momentum": ("Perf 6M", "signed_pct"),
     "value": ("P/E", "number"),

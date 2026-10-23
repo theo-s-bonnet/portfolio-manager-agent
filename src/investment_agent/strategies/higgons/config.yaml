@@ -35,17 +35,12 @@ universe:
   price_history_months: 6
 
 filters:
-  pe_ttm_max: 12
-  roe_ttm_min_pct: 10
+  pe_max: 12                                      # retained P/E
   revenue_cagr_5y_min_pct: 5
   net_debt_ebitda_max: 3
   ema_period: 100
   ema_entry_pct: 102                              # entry above the EMA, exit lower: avoids round trips
   perf_6m_min_pct: 0
-  debt_to_equity_decrease_min_points: 10
-  dilution_annual_max_pct: 5
-  dilution_years: 2
-  dilution_recent_max_pct: 5
 
 score:
   weights:   {momentum: 0.30, value: 0.25, quality: 0.20, growth: 0.15, balance_sheet: 0.10}

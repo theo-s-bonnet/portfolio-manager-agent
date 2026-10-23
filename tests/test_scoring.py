@@ -13,8 +13,8 @@ WEIGHTS = CFG["score"]["weights"]
 
 
 def stocks(rows):
-    """rows: (tv_ticker, perf, pe, roe, cagr, nd/ebitda, eligible)."""
-    columns = ["tv_ticker", "perf_6m", "pe_ttm", "roe_ttm", "revenue_cagr_5y", "net_debt_ebitda", "eligible"]
+    """rows: (tv_ticker, perf, retained pe, roe, cagr, nd/ebitda, eligible)."""
+    columns = ["tv_ticker", "perf_6m", "pe_retained", "roe_ttm", "revenue_cagr_5y", "net_debt_ebitda", "eligible"]
     return pd.DataFrame(rows, columns=columns)
 
 
@@ -74,6 +74,17 @@ def test_component_without_a_measure():
     cfg["score"]["direction"]["unknown"] = "high"
     with pytest.raises(ValueError, match="unknown"):
         rank(stocks([("NYSE:A", 1, 1, 1, 1, 1.0, True)]), cfg)
+
+
+def test_value_ranked_on_the_retained_pe():
+    df = stocks([
+        ("XETR:A", 10, 9, 15, 7, 1.0, True),
+        ("XETR:B", 10, 6, 15, 7, 1.0, True),
+        ("XETR:C", 10, 7, 15, 7, 1.0, True),
+    ])
+    df["pe_ttm"] = [5.0, 6.0, 7.0]                 # TradingView P/E: would give the opposite order for A
+    res = rank(df, CFG).set_index("tv_ticker")
+    assert res["pct_value"].to_dict() == {"XETR:B": 100, "XETR:C": 50, "XETR:A": 0}
 
 
 def test_config_weights_sum_to_1():

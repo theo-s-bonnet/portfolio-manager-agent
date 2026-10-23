@@ -35,7 +35,7 @@ def test_no_eligible_stock():
     ranking = text.split("## Ranking")[1].split("##")[0]
     assert "No eligible stock." in ranking
     assert "| **Eligible** | **0** |" in text
-    assert "| R4.1 P/E TTM | 0 | 1 | 0 |" in text
+    assert "| R4.1 retained P/E | 0 | 1 | 0 |" in text
 
 
 def test_partial_run_reported():
@@ -54,7 +54,7 @@ def test_report_and_csv_written(tmp_path):
     reread = pd.read_csv(csv, encoding="utf-8")
     assert list(reread.columns[:4]) == ["tv_ticker", "yahoo_ticker", "eligible", "first_failed_rule"]
     assert len(reread) == 3
-    assert reread.loc[2, "R4.2"] == "missing"
+    assert reread.loc[0, "pe_source"] == "tv" and reread.loc[0, "pe_retained"] == 6.0
     assert reread.loc[0, "first_bar_date"] == "2015-01-02"
     assert not [c for c in reread.columns if c.startswith("yf_")]
 
@@ -70,8 +70,8 @@ def test_number_formatting():
 def test_missing_data_grouped_by_stock():
     nan = float("nan")
     res = fake_result([tv_stock(tv_ticker="XETR:EMPTY", yahoo_ticker="EMPTY.DE", pe_ttm=nan, roe_ttm=nan,
-                                revenue_cagr_5y=nan)])
+                                net_income_ttm=nan, revenue_cagr_5y=nan)])
     text = render_report(res, config(), META)
-    assert ("| XETR:EMPTY (EMPTY.DE) | R4.1, R4.2, R4.3 | P/E missing ; ROE missing ; 5-year revenue CAGR missing |"
-            ) in text
+    assert ("| XETR:EMPTY (EMPTY.DE) | R4.1, R4.3 | TradingView P/E and market cap / TTM net income missing ; "
+            "5-year revenue CAGR missing |") in text
     assert "Stocks concerned: 1." in text

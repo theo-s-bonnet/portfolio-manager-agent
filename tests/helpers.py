@@ -73,10 +73,11 @@ def three_stocks() -> list[dict]:
     return [
         tv_stock(tv_ticker="EURONEXT:AAA", yahoo_ticker="AAA.PA", market="france", exchange="EURONEXT",
                  country="France", isin="FR000TEST0A1", name="Alpha SA", perf_6m=25.0, pe_ttm=6.0,
+                 net_income_ttm=2e8,
                  roe_ttm=18.0, revenue_cagr_5y=8.0, net_debt=50.0, ebitda_ttm=100.0),
         tv_stock(tv_ticker="OSL:BBB", yahoo_ticker="BBB.OL", market="norway", exchange="OSL", country="Norway",
                  isin="NO000TEST0B1", name="Bravo ASA", sector="Transportation", industry="Marine Shipping",
-                 currency="NOK", reporting_currency="NOK", market_cap=5.0e9, price=100.0,
+                 currency="NOK", reporting_currency="NOK", market_cap=5.0e9, net_income_ttm=6e8, price=100.0,
                  avg_volume_3m=50_000.0, ema=90.0, perf_6m=40.0, pe_ttm=9.0, roe_ttm=25.0,
                  revenue_cagr_5y=12.0, net_debt=-20.0, ebitda_ttm=40.0),
         tv_stock(tv_ticker="XETR:CCC", yahoo_ticker="CCC.DE", name="Charlie AG", roe_ttm=float("nan")),

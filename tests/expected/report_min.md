@@ -12,17 +12,15 @@ Sources: TradingView (delayed data). Exchange rates: last Yahoo Finance close av
 | R3.3 liquidity (approximate) | 3 | 0 | 0 |
 | R3.4 stocks only (preferred shares excluded outside Germany) | 3 | 0 | 0 |
 | R3.5 banks and insurers excluded | 3 | 0 | 0 |
-| R4.1 P/E TTM | 3 | 0 | 0 |
-| R4.2 ROE | 2 | 1 | 1 |
-| R4.3 5-year revenue growth | 2 | 0 | 0 |
-| R4.4 net debt / EBITDA | 2 | 0 | 0 |
-| R4.5 price above the EMA | 2 | 0 | 0 |
-| R4.6 6-month performance | 2 | 0 | 0 |
-| R4.8 TTM net income | 2 | 0 | 0 |
-| R4.12 EBITDA and EPS denominators | 2 | 0 | 0 |
-| R3.6 price history (first TradingView bar) | 2 | 0 | 0 |
-| Yahoo ticker available | 2 | 0 | 0 |
-| **Eligible** | **2** |  |  |
+| R4.1 retained P/E | 3 | 0 | 0 |
+| R4.3 5-year revenue growth | 3 | 0 | 0 |
+| R4.4 net debt / EBITDA | 3 | 0 | 0 |
+| R4.5 price above the EMA | 3 | 0 | 0 |
+| R4.6 6-month performance | 3 | 0 | 0 |
+| R3.6 price history (first TradingView bar) | 3 | 0 | 0 |
+| R4.12 EBITDA and EPS denominators | 3 | 0 | 0 |
+| Yahoo ticker available | 3 | 0 | 0 |
+| **Eligible** | **3** |  |  |
 
 Each stock is counted at the first step it fails.
 
@@ -30,8 +28,9 @@ Each stock is counted at the first step it fails.
 
 | # | Stock | Name | Country | Sector | Score | Perf 6M | P/E | ROE | Rev. CAGR 5y | ND/EBITDA |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 1 | OSL:BBB (BBB.OL) | Bravo ASA | Norway | Transportation | 75.0 | +40.0% (100) | 9.0 (0) | 25.0% (100) | 12.0% (100) | −0.5 (100) |
-| 2 | EURONEXT:AAA (AAA.PA) | Alpha SA | France | Producer Manufacturing | 25.0 | +25.0% (0) | 6.0 (100) | 18.0% (0) | 8.0% (0) | 0.5 (0) |
+| 1 | OSL:BBB (BBB.OL) | Bravo ASA | Norway | Transportation | 87.5 | +40.0% (100) | 9.0 (50) | 25.0% (100) | 12.0% (100) | −0.5 (100) |
+| 2 | EURONEXT:AAA (AAA.PA) | Alpha SA | France | Producer Manufacturing | 42.5 | +25.0% (50) | 6.0 (100) | 18.0% (0) | 8.0% (0) | 0.5 (25) |
+| 3 | XETR:CCC (CCC.DE) | Charlie AG | Germany | Producer Manufacturing | — | +15.0% (0) | 10.0 (0) | — (—) | 10.0% (50) | 0.5 (25) |
 
 Raw value, then percentile rank among eligible stocks in parentheses.
 
@@ -39,22 +38,22 @@ Raw value, then percentile rank among eligible stocks in parentheses.
 
 Stocks that pass every evaluated rule except one or more rules in `missing`.
 
-Stocks concerned: 1.
-
-| Stock | Rules in `missing` | Missing or doubtful data |
-|---|---|---|
-| XETR:CCC (CCC.DE) | R4.2 | ROE missing |
+None.
 
 ## Warnings
 
 ### TradingView markets with errors or truncated (0)
 None.
 
+### Retained P/E: fallback to market cap / TTM net income (TradingView P/E missing) (0)
+None.
+
 ### Statutory country (ISIN prefix) outside the EU/EEA: check PEA eligibility (0)
 None.
 
-### Eligible by country (2)
+### Eligible by country (3)
 - France: 1
+- Germany: 1
 - Norway: 1
 
 ## Rules not applied or applied with a limitation

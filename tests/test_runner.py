@@ -21,10 +21,11 @@ STOCKS = {
         european("OTC:EEE", "germany", "OTC", "Germany"),
     ],
     "norway": [
-        european("OSL:BBB", "norway", "OSL", "Norway", currency="NOK", market_cap=5e9, perf_6m=10.0),
+        european("OSL:BBB", "norway", "OSL", "Norway", currency="NOK", market_cap=5e9, net_income_ttm=6e8,
+                 perf_6m=10.0),
     ],
     "sweden": [
-        european("NGM:FFF", "sweden", "NGM", "Sweden", currency="SEK", market_cap=5e9),
+        european("NGM:FFF", "sweden", "NGM", "Sweden", currency="SEK", market_cap=5e9, net_income_ttm=6e8),
     ],
     "croatia": [
         european("ZSE:TEST", "croatia", "ZSE", "Croatia"),     # passes every rule, no Yahoo ticker

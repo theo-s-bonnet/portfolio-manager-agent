@@ -16,7 +16,7 @@ from investment_agent.engine.statuses import ELIGIBLE_COLUMN
 # Measure of each component: internal column of the universe DataFrame.
 COMPONENT_COLUMNS = {
     "momentum": "perf_6m",
-    "value": "pe_ttm",
+    "value": "pe_retained",                # retained P/E (R4.1)
     "quality": "roe_ttm",
     "growth": "revenue_cagr_5y",
     "balance_sheet": "net_debt_ebitda",   # computed in code (R4.4)
