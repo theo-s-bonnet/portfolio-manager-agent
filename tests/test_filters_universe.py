@@ -59,10 +59,9 @@ def test_type_missing():
 
 
 def test_excluded_typespecs():
-    cfg = config()
-    cfg["universe"]["excluded_typespecs"] = ["preferred"]
-    df = filter_tv(universe(tv_stock(subtype=["preferred"])), cfg, RATES, DATE)
-    assert df["R3.4"].iloc[0] == "fail"
+    df = tv(tv_stock(tv_ticker="OMXSTO:TEST_PREF", market="sweden", exchange="OMXSTO", country="Sweden",
+                     subtype=["preferred"]))
+    assert status(df, "R3.4") == "fail"
 
 
 def test_regional_bank():
@@ -92,7 +91,7 @@ def test_fwb_in_germany_kept():
 
 
 def test_otc_excluded():
-    df = tv(tv_stock(tv_ticker="OTC:VXRT", exchange="OTC"))
+    df = tv(tv_stock(tv_ticker="OTC:TEST", market="germany", exchange="OTC"))
     assert status(df, "R3.1") == "fail"
     assert "OTC" in df["reason_R3.1"].iloc[0]
 
@@ -102,12 +101,12 @@ def test_market_outside_the_universe_and_missing_data():
     assert df["R3.1"].tolist() == ["fail", "missing"]
 
 
-def test_cad_rate_missing():
-    rates = {k: v for k, v in RATES.items() if k != "CAD"}
-    df = tv(tv_stock(tv_ticker="TSX:AC", market="canada", exchange="TSX", currency="CAD",
-                     reporting_currency="CAD"), rates=rates)
+def test_nok_rate_missing():
+    rates = {k: v for k, v in RATES.items() if k != "NOK"}
+    df = tv(tv_stock(tv_ticker="OSL:TEST", market="norway", exchange="OSL", country="Norway",
+                     currency="NOK", reporting_currency="NOK"), rates=rates)
     assert status(df, "R3.2") == "missing" and status(df, "R3.3") == "missing"
-    assert df["reason_R3.2"].iloc[0] == "exchange rate CAD missing"
+    assert df["reason_R3.2"].iloc[0] == "exchange rate NOK missing"
     assert pd.isna(df["market_cap_eur"].iloc[0])        # never 0
 
 
@@ -127,6 +126,73 @@ def test_london_gbp_and_gbx():
     # GBX/GBP confusion: the same amount read in GBX gives 5.75 M EUR, below the minimum
     df = tv(tv_stock(reporting_currency="GBX", market_cap=500e6))
     assert status(df, "R3.2") == "fail"
+
+
+# --- PEA universe (R3.1 headquarters, ISIN warning) and preferred shares (R3.4) -------------
+
+def isin_warnings(df, i=0):
+    return [text for category, text in df["warnings"].iloc[i] if category.startswith("Statutory country")]
+
+
+def test_headquarters_outside_the_eu_eea():
+    df = tv(tv_stock(tv_ticker="OSL:TEST", market="norway", exchange="OSL", currency="NOK",
+                     reporting_currency="NOK", country="Bermuda"))
+    assert status(df, "R3.1") == "fail"
+    assert df["reason_R3.1"].iloc[0] == "headquarters country Bermuda outside the EU/EEA"
+
+
+def test_headquarters_country_missing():
+    df = tv(tv_stock(country=None))
+    assert status(df, "R3.1") == "missing"
+    assert df["reason_R3.1"].iloc[0] == "missing: headquarters country"
+
+
+def test_aland_islands_kept():
+    df = tv(tv_stock(tv_ticker="OMXHEX:TEST", market="finland", exchange="OMXHEX", country="Aland Islands"))
+    assert status(df, "R3.1") == "pass"
+
+
+def test_faroe_islands_excluded():
+    df = tv(tv_stock(tv_ticker="OMXCOP:TEST", market="denmark", exchange="OMXCOP", country="Faroe Islands"))
+    assert status(df, "R3.1") == "fail"
+
+
+def test_market_outside_the_pea_universe():
+    df = tv(tv_stock(tv_ticker="LSE:TEST", market="uk", exchange="LSE", country="United Kingdom"))
+    assert status(df, "R3.1") == "fail"
+    assert df["reason_R3.1"].iloc[0] == "market uk outside the universe"
+
+
+def test_isin_prefix_outside_the_eu_eea_warns_only():
+    df = tv(tv_stock(tv_ticker="OSL:TEST", market="norway", exchange="OSL", currency="NOK",
+                     reporting_currency="NOK", market_cap=5e9, country="Norway", isin="BMG0670A1099"))
+    assert [status(df, r) for r in ("R3.1", "R3.2", "R3.3", "R3.4", "R3.5")] == ["pass"] * 5
+    assert isin_warnings(df) == ["ISIN BMG0670A1099, headquarters Norway"]
+
+
+def test_legacy_czech_isin_prefix_accepted():
+    df = tv(tv_stock(tv_ticker="PSECZ:TEST", market="czech", exchange="PSECZ", currency="CZK",
+                     reporting_currency="CZK", country="Czech Republic", isin="CS0008418869"))
+    assert isin_warnings(df) == []
+    assert "NO" in CFG["technical"]["eu_eea_isin_prefixes"]       # not read as a YAML boolean
+
+
+def test_german_preference_shares_kept():
+    df = tv(tv_stock(tv_ticker="XETR:TEST3", subtype=["preferred"]))
+    assert status(df, "R3.4") == "pass"
+
+
+def test_preference_shares_excluded_outside_germany():
+    df = tv(tv_stock(tv_ticker="OMXSTO:TEST_PREF", market="sweden", exchange="OMXSTO", country="Sweden",
+                     subtype=["preferred"]))
+    assert status(df, "R3.4") == "fail"
+    assert df["reason_R3.4"].iloc[0] == "subtype preferred (market sweden)"
+
+
+def test_common_shares_kept_outside_germany():
+    df = tv(tv_stock(tv_ticker="OMXSTO:TEST", market="sweden", exchange="OMXSTO", country="Sweden",
+                     subtype=["common"]))
+    assert status(df, "R3.4") == "pass"
 
 
 # --- R3.6 (data guard: first TradingView bar) ----------------------------------------

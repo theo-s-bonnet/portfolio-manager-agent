@@ -8,7 +8,7 @@ No network call in this folder: the engine downloads, the strategy computes.
 
 from pathlib import Path
 
-from investment_agent.strategies.higgons.filters import filter_tv
+from investment_agent.strategies.higgons.filters import CATEGORY_ISIN, filter_tv
 from investment_agent.strategies.higgons.scoring import COMPONENT_COLUMNS, pct_column, rank
 
 TITLE = "Higgons"
@@ -18,8 +18,8 @@ CONFIG_PATH = Path(__file__).with_name("config.yaml")
 # Required keys of config.yaml, checked by engine.config.validate_config.
 REQUIRED_KEYS: dict[str, list[str]] = {
     "universe": [
-        "markets", "excluded_exchanges", "allowed_types", "excluded_typespecs",
-        "excluded_fund_industries", "excluded_bank_insurance_industries",
+        "markets", "hq_countries", "excluded_exchanges", "allowed_types", "excluded_typespecs",
+        "typespec_exempt_markets", "excluded_fund_industries", "excluded_bank_insurance_industries",
         "market_cap_min_eur", "market_cap_max_eur", "liquidity_min_eur_per_day",
         "price_history_months",
     ],
@@ -30,12 +30,15 @@ REQUIRED_KEYS: dict[str, list[str]] = {
     ],
     "score": ["weights", "direction"],
     "tradingview_fields": [
-        "type", "subtype", "primary", "exchange", "country", "name", "sector", "industry",
+        "type", "subtype", "primary", "exchange", "country", "isin", "name", "sector", "industry",
         "currency", "reporting_currency", "market_cap", "price", "avg_volume_3m", "pe_ttm",
         "eps_ttm", "roe_ttm", "revenue_cagr_5y", "net_debt", "ebitda_ttm",
         "net_income_ttm", "ema", "perf_6m", "first_bar_time",
     ],
-    "technical": ["comparison_tolerance", "history_start_tolerance_days", "tradingview_limit"],
+    "technical": [
+        "comparison_tolerance", "history_start_tolerance_days", "tradingview_limit",
+        "eu_eea_isin_prefixes",
+    ],
 }
 
 
@@ -45,10 +48,10 @@ REQUIRED_KEYS: dict[str, list[str]] = {
 # counts a stock at the first step it fails. Data guards come last, followed by the engine
 # guard (Yahoo ticker available).
 TV_STEPS = [
-    ("R3.1", "R3.1 market, exchange and primary listing"),
+    ("R3.1", "R3.1 PEA universe: market, headquarters, primary listing"),
     ("R3.2", "R3.2 market cap"),
     ("R3.3", "R3.3 liquidity (approximate)"),
-    ("R3.4", "R3.4 stocks only"),
+    ("R3.4", "R3.4 stocks only (preferred shares excluded outside Germany)"),
     ("R3.5", "R3.5 banks and insurers excluded"),
     ("R4.1", "R4.1 P/E TTM"),
     ("R4.2", "R4.2 ROE"),
@@ -66,7 +69,8 @@ DESCRIPTION_COLUMNS = [("Name", "name"), ("Country", "country"), ("Sector", "sec
 # Columns read by the engine: exchange rates to download, country of the eligible stocks.
 CURRENCY_COLUMNS = ["currency", "reporting_currency"]
 COUNTRY_COLUMN = "country"
-WARNING_CATEGORIES: list[str] = []
+# Strategy warning categories (column `warnings` filled by filter_tv), in report order.
+WARNING_CATEGORIES = [CATEGORY_ISIN]
 _COMPONENT_DISPLAY = {
     "momentum": ("Perf 6M", "signed_pct"),
     "value": ("P/E", "number"),

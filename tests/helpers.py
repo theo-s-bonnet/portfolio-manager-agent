@@ -10,7 +10,7 @@ from investment_agent.engine.config import load_config
 from investment_agent.strategies.higgons import CONFIG_PATH, REQUIRED_KEYS
 
 DATE = dt.date(2026, 10, 24)    # a Saturday
-RATES = {"EUR": 1.0, "USD": 0.9, "GBP": 1.15, "GBX": 0.0115, "NOK": 0.085, "CAD": 0.65}
+RATES = {"EUR": 1.0, "USD": 0.9, "GBP": 1.15, "GBX": 0.0115, "NOK": 0.085, "SEK": 0.09}
 
 
 def config() -> dict:
@@ -23,12 +23,13 @@ def unix_time(day: str) -> int:
 
 
 def tv_stock(**changes) -> dict:
-    """A US stock that passes every rule; `changes` replaces fields."""
+    """A European stock that passes every rule; `changes` replaces fields."""
     v = {
-        "tv_ticker": "NYSE:TEST", "yahoo_ticker": "TEST", "market": "america", "type": "stock",
-        "subtype": ["common"], "primary": True, "exchange": "NYSE", "country": "United States",
-        "name": "Test Corp", "sector": "Producer Manufacturing", "industry": "Industrial Machinery",
-        "currency": "USD", "reporting_currency": "USD", "market_cap": 1.0e9, "price": 50.0,
+        "tv_ticker": "XETR:TEST", "yahoo_ticker": "TEST.DE", "market": "germany", "type": "stock",
+        "subtype": ["common"], "primary": True, "exchange": "XETR", "country": "Germany",
+        "isin": "DE000TEST0001", "name": "Test AG", "sector": "Producer Manufacturing",
+        "industry": "Industrial Machinery", "currency": "EUR", "reporting_currency": "EUR",
+        "market_cap": 1.0e9, "price": 50.0,
         "avg_volume_3m": 100_000.0, "pe_ttm": 8.0, "eps_ttm": 6.25, "roe_ttm": 20.0,
         "revenue_cagr_5y": 10.0, "net_debt": 100.0, "ebitda_ttm": 200.0,
         "net_income_ttm": 1.0e8, "ema": 45.0, "perf_6m": 15.0,
@@ -70,14 +71,13 @@ def three_stocks() -> list[dict]:
     """Stocks of the reference report: two eligible stocks, one excluded because its ROE is
     missing."""
     return [
-        tv_stock(tv_ticker="NYSE:AAA", yahoo_ticker="AAA", name="Alpha Inc", perf_6m=25.0, pe_ttm=6.0,
+        tv_stock(tv_ticker="EURONEXT:AAA", yahoo_ticker="AAA.PA", market="france", exchange="EURONEXT",
+                 country="France", isin="FR000TEST0A1", name="Alpha SA", perf_6m=25.0, pe_ttm=6.0,
                  roe_ttm=18.0, revenue_cagr_5y=8.0, net_debt=50.0, ebitda_ttm=100.0),
         tv_stock(tv_ticker="OSL:BBB", yahoo_ticker="BBB.OL", market="norway", exchange="OSL", country="Norway",
-                 name="Bravo ASA", sector="Transportation", industry="Marine Shipping", currency="NOK",
-                 reporting_currency="NOK", market_cap=5.0e9, price=100.0, avg_volume_3m=50_000.0,
-                 ema=90.0, perf_6m=40.0, pe_ttm=9.0, roe_ttm=25.0, revenue_cagr_5y=12.0,
-                 net_debt=-20.0, ebitda_ttm=40.0),
-        tv_stock(tv_ticker="XETR:CCC", yahoo_ticker="CCC.DE", market="germany", exchange="XETR",
-                 country="Germany", name="Charlie AG", currency="EUR", reporting_currency="EUR",
-                 roe_ttm=float("nan")),
+                 isin="NO000TEST0B1", name="Bravo ASA", sector="Transportation", industry="Marine Shipping",
+                 currency="NOK", reporting_currency="NOK", market_cap=5.0e9, price=100.0,
+                 avg_volume_3m=50_000.0, ema=90.0, perf_6m=40.0, pe_ttm=9.0, roe_ttm=25.0,
+                 revenue_cagr_5y=12.0, net_debt=-20.0, ebitda_ttm=40.0),
+        tv_stock(tv_ticker="XETR:CCC", yahoo_ticker="CCC.DE", name="Charlie AG", roe_ttm=float("nan")),
     ]

@@ -69,9 +69,9 @@ def test_number_formatting():
 
 def test_missing_data_grouped_by_stock():
     nan = float("nan")
-    res = fake_result([tv_stock(tv_ticker="NYSE:EMPTY", yahoo_ticker="EMPTY", pe_ttm=nan, roe_ttm=nan,
+    res = fake_result([tv_stock(tv_ticker="XETR:EMPTY", yahoo_ticker="EMPTY.DE", pe_ttm=nan, roe_ttm=nan,
                                 revenue_cagr_5y=nan)])
     text = render_report(res, config(), META)
-    assert ("| NYSE:EMPTY (EMPTY) | R4.1, R4.2, R4.3 | P/E missing ; ROE missing ; 5-year revenue CAGR missing |"
+    assert ("| XETR:EMPTY (EMPTY.DE) | R4.1, R4.2, R4.3 | P/E missing ; ROE missing ; 5-year revenue CAGR missing |"
             ) in text
     assert "Stocks concerned: 1." in text

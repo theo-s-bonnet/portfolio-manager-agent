@@ -21,7 +21,7 @@ import pandas as pd
 
 from investment_agent.engine.data.fx import to_eur
 from investment_agent.engine.finance import is_number, safe_ratio
-from investment_agent.engine.statuses import FAIL, MISSING, PASS, reason_column
+from investment_agent.engine.statuses import FAIL, MISSING, PASS, WARNINGS_COLUMN, reason_column
 
 Rule = Callable[[pd.DataFrame, dict], tuple[pd.Series, pd.Series]]
 
@@ -141,22 +141,26 @@ def _conversion_reason(v: dict, amount: str, currency: str, label: str) -> str:
 
 
 def r3_1(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Market (country) in the universe, exchange other than OTC, primary listing."""
+    """PEA universe: market (listing country) in the universe, exchange other than OTC, primary
+    listing, headquarters country (TradingView `country`) in the EU/EEA list."""
     u = cfg["universe"]
     markets, excluded = set(u["markets"]), set(u["excluded_exchanges"])
+    countries = set(u["hq_countries"])
 
     def rule(v):
         market, exchange = _text(v.get("market")), _text(v.get("exchange"))
-        primary = _boolean(v.get("primary"))
+        primary, country = _boolean(v.get("primary")), _text(v.get("country"))
         if market is not None and market not in markets:
             return FAIL, f"market {market} outside the universe"
         if exchange is not None and exchange in excluded:
             return FAIL, f"exchange {exchange} excluded"
         if primary is False:
             return FAIL, "secondary listing"
-        if market is None or exchange is None or primary is None:
+        if country is not None and country not in countries:
+            return FAIL, f"headquarters country {country} outside the EU/EEA"
+        if market is None or exchange is None or primary is None or country is None:
             return MISSING, _missing(("market", market), ("exchange", exchange),
-                                     ("primary listing", primary))
+                                     ("primary listing", primary), ("headquarters country", country))
         return PASS, ""
 
     return _apply(df, rule)
@@ -197,9 +201,14 @@ def r3_3(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
 
 
 def r3_4(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Stocks only: allowed type, subtype not excluded, industry other than funds."""
+    """Stocks only: allowed type, subtype not excluded, industry other than funds.
+
+    A subtype listed in `typespec_exempt_markets` is allowed on those markets (German
+    preference shares).
+    """
     u = cfg["universe"]
     types, excluded = set(u["allowed_types"]), set(u["excluded_typespecs"])
+    exempt = {spec: set(markets or []) for spec, markets in (u["typespec_exempt_markets"] or {}).items()}
     funds = set(u["excluded_fund_industries"])
 
     def rule(v):
@@ -212,9 +221,10 @@ def r3_4(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
             specs = _list(v.get("subtype"))
             if specs is None:
                 return MISSING, "subtype missing"
-            forbidden = sorted(set(specs) & excluded)
+            market = _text(v.get("market"))
+            forbidden = sorted(s for s in set(specs) & excluded if market not in exempt.get(s, set()))
             if forbidden:
-                return FAIL, f"subtype {', '.join(forbidden)}"
+                return FAIL, f"subtype {', '.join(forbidden)} (market {market})"
         industry = _text(v.get("industry"))
         if industry is None:
             return MISSING, "industry missing"
@@ -385,6 +395,30 @@ def r4_12_tv(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
     return _apply(df, rule)
 
 
+# --- warnings (no effect on eligibility) ---------------------------------------------------
+
+CATEGORY_ISIN = "Statutory country (ISIN prefix) outside the EU/EEA: check PEA eligibility"
+UNIVERSE_RULES = ["R3.1", "R3.2", "R3.3", "R3.4", "R3.5"]
+
+
+def warnings_column(df: pd.DataFrame, cfg: dict) -> pd.Series:
+    """List of (category, text) per stock, for the stocks that pass the universe rules.
+
+    ISIN prefix outside the EU/EEA: the TradingView `country` is the declared (often
+    operational) headquarters; the ISIN prefix usually gives the country of incorporation.
+    """
+    prefixes = tuple(str(p).upper() for p in cfg["technical"]["eu_eea_isin_prefixes"])
+    in_universe = df[UNIVERSE_RULES].eq(PASS).all(axis=1)
+    result = []
+    for ok, v in zip(in_universe, df.to_dict("records")):
+        items: list[tuple[str, str]] = []
+        isin = _text(v.get("isin"))
+        if ok and isin is not None and not isin.upper().startswith(prefixes):
+            items.append((CATEGORY_ISIN, f"ISIN {isin}, headquarters {_text(v.get('country'))}"))
+        result.append(items)
+    return pd.Series(result, index=df.index, dtype=object)
+
+
 # --- sequence ----------------------------------------------------------------------------
 
 TV_RULES: dict[str, Rule] = {
@@ -414,4 +448,5 @@ def filter_tv(df: pd.DataFrame, cfg: dict, rates: dict[str, float], run_date: dt
     for rule, function in TV_RULES.items():
         df[rule], df[reason_column(rule)] = function(df, cfg)
     df["R3.6"], df[reason_column("R3.6")] = r3_6(df, cfg, run_date)
+    df[WARNINGS_COLUMN] = warnings_column(df, cfg)
     return df
