@@ -121,43 +121,46 @@ are broken by TradingView identifier, so the order is deterministic.
 
 ## Example output
 
-The report below is the reference used by the tests: three fictional stocks
-([`tests/expected/report_min.md`](tests/expected/report_min.md), abridged).
+Excerpt of the reference report used by the tests, built from three fictional stocks (full
+file: [`tests/expected/report_min.md`](tests/expected/report_min.md)).
 
-```markdown
-# Higgons screener: Saturday 2026-10-24
+**Summary**
 
-## Summary
 | Step | Remaining | Excluded at this step | of which missing data |
 |---|---|---|---|
 | TradingView universe (2 markets) | 3 | — | — |
 | **Universe** |  |  |  |
 | R3.1 PEA universe: market, headquarters, primary listing | 3 | 0 | 0 |
+| R3.2 market cap | 3 | 0 | 0 |
+| ... | | | |
 | **Selection criteria** |  |  |  |
 | R4.1 retained P/E | 3 | 0 | 0 |
+| ... | | | |
 | **Data guards** |  |  |  |
+| R3.6 price history (first TradingView bar) | 3 | 0 | 0 |
 | R4.11 data needed by the score | 2 | 1 | 1 |
+| R4.12 EBITDA and EPS denominators | 2 | 0 | 0 |
 | Yahoo ticker available | 2 | 0 | 0 |
 | **Eligible** | **2** |  |  |
 
-## Ranking
+**Ranking** (raw value, then percentile rank among eligible stocks in parentheses)
+
 | # | Stock | Name | Country | Sector | Score | Perf 6M | P/E | ROE | Rev. CAGR 5y | ND/EBITDA |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 1 | OSL:BBB (BBB.OL) | Bravo ASA | Norway | Transportation | 75.0 | +40.0% (100) | 8.3† (0) | 25.0% (100) | 12.0% (100) | −0.5 (100) |
 | 2 | EURONEXT:AAA (AAA.PA) | Alpha SA | France | Producer Manufacturing | 25.0 | +25.0% (0) | 6.0 (100) | 18.2%‡ (0) | 8.0% (0) | 0.5 (0) |
 
-† fallback: market cap / TTM net income (TradingView P/E missing)
+† fallback: market cap / TTM net income (TradingView P/E missing)<br>
 ‡ fallback: TTM net income / shareholders' equity of the last quarter (TradingView ROE missing)
 
-## Excluded for missing or doubtful data
+**Excluded for missing or doubtful data**
+
 | Stock | Rules in `missing` | Missing or doubtful data |
 |---|---|---|
 | XETR:CCC (CCC.DE) | R4.11 | ROE missing; fallback not computed: shareholders' equity -100,000,000 ≤ 0 |
 
-## Warnings
-### Statutory country (ISIN prefix) outside the EU/EEA: check PEA eligibility (1)
-- EURONEXT:AAA: ISIN BMG000TEST01, headquarters France
-```
+**Warnings** (excerpt): *Statutory country (ISIN prefix) outside the EU/EEA: check PEA
+eligibility*: EURONEXT:AAA, ISIN BMG000TEST01, headquarters France.
 
 The full report also lists the other warnings (TradingView markets in error, missing exchange
 rates, exchanges without a Yahoo mapping, fallbacks, ROE <= 0), the eligible stocks by
