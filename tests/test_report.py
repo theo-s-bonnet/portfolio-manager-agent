@@ -1,4 +1,4 @@
-"""Markdown report, detail CSV and comparison with an exported TradingView list."""
+"""Markdown report and detail CSV."""
 
 import datetime as dt
 from pathlib import Path
@@ -64,96 +64,6 @@ def test_number_formatting():
     assert number(-3.25, 2) == "−3.25"
     assert number(34.0, signed=True) == "+34.0"
     assert number(None) == "—"
-
-
-# --- comparison ----------------------------------------------------------------------------
-
-from helpers import RATES, yahoo_data  # noqa: E402
-from investment_agent.engine.comparison import (  # noqa: E402
-    compare, load_screen, match_list, read_list)
-from investment_agent.strategies.higgons import SCREEN_PATH  # noqa: E402
-
-SCREEN = load_screen(SCREEN_PATH)
-
-
-def comparison(stocks, csv_text, tmp_path):
-    path = tmp_path / "list.csv"
-    path.write_text(csv_text, encoding="utf-8")
-    data = {v["tv_ticker"]: yahoo_data() for v in stocks}
-    res = fake_result(stocks, data)
-    return res, compare(res.universe, path, SCREEN, RATES, 1e-9)
-
-
-def test_ktn_xetr_and_cef_nyse_arca(tmp_path):
-    stocks = [
-        tv_stock(tv_ticker="XETR:KTN", yahoo_ticker="KTN.DE", market="germany", exchange="XETR",
-                 currency="EUR", reporting_currency="EUR"),
-        tv_stock(tv_ticker="AMEX:CEF", yahoo_ticker="CEF", exchange="AMEX", type="fund",
-                 industry="Investment Trusts/Mutual Funds"),
-    ]
-    _, comp = comparison(stocks, "KTN;XETR\nCEF;NYSE Arca\n", tmp_path)
-    assert comp["both_lists"] == ["XETR:KTN"]
-    assert comp["list_only"] == [
-        {"export": "NYSE Arca;CEF", "tv_ticker": "AMEX:CEF", "rule": "R3.4", "reason": "type fund"}]
-    assert comp["n_list"] == 2 and comp["n_common"] == 1
-
-
-def test_price_at_101_pct_of_the_ema(tmp_path):
-    stocks = [tv_stock(tv_ticker="NYSE:EMA", yahoo_ticker="EMA", price=50.5, ema=50.0)]
-    _, comp = comparison(stocks, "Ticker,Exchange\nEMA,NYSE\n", tmp_path)
-    (only,) = comp["list_only"]
-    assert only["rule"] == "R4.5" and "101" in only["reason"]
-    assert comp["not_reproduced"] == []          # the recomputed screen keeps it
-    assert comp["n_screen"] == 1
-
-
-def test_roe_equal_to_10_only_in_the_script(tmp_path):
-    stocks = [tv_stock(tv_ticker="NYSE:ROE", yahoo_ticker="ROE", roe_ttm=10.0),
-              tv_stock(tv_ticker="NYSE:OTHER", yahoo_ticker="OTHER")]
-    res, comp = comparison(stocks, "Ticker,Exchange\nOTHER,NYSE\n", tmp_path)
-    assert res.universe.set_index("tv_ticker").loc["NYSE:ROE", "eligible"]
-    assert comp["script_only"] == [{"tv_ticker": "NYSE:ROE", "criterion": "ROE > 10% (10)"}]
-
-
-def test_only_in_the_script_without_criterion_at_fault(tmp_path):
-    _, comp = comparison([tv_stock()], "Ticker,Exchange\nOTHER,NYSE\n", tmp_path)
-    assert comp["script_only"][0]["criterion"].startswith("none: different data")
-    assert comp["list_only"][0]["tv_ticker"] is None      # not in the universe
-
-
-def test_comparison_section_in_the_report(tmp_path):
-    res, comp = comparison([tv_stock(tv_ticker="NYSE:EMA", yahoo_ticker="EMA", price=50.5, ema=50.0)],
-                           "EMA,NYSE\n", tmp_path)
-    res.comparison = comp
-    text = render_report(res, config(), META)
-    assert "## Comparison with the TradingView list" in text
-    assert "| NYSE;EMA | NYSE:EMA | R4.5 |" in text
-
-
-def test_list_formats(tmp_path):
-    path = tmp_path / "l.csv"
-    path.write_text("\ufeffTicker,Exchange\nHLUN_A,OMXCOP\nREPX,NYSE Arca\n", encoding="utf-8")
-    assert read_list(path) == [("HLUN_A", "OMXCOP"), ("REPX", "NYSE Arca")]
-    path.write_text("Symbol;Description\nNASDAQ:AUPH;Aurinia\n", encoding="utf-8")
-    assert read_list(path) == [("AUPH", "NASDAQ")]
-
-
-def test_matching():
-    universe = pd.DataFrame({
-        "tv_ticker": ["OMXCOP:HLUN_A", "AMEX:REPX", "TSX:LAS.A", "NYSE:X", "TSX:X", "TSX:BTO", "XETR:EVT", "NASDAQ:Y", "TSXV:Q"],
-        "market": ["denmark", "america", "canada", "america", "canada", "canada", "germany", "america", "canada"],
-    })
-    entries = [("HLUN_A", "OMXCOP"), ("REPX", "NYSE Arca"), ("LAS.A", None), ("X", None), ("Z", "NYSE"),
-               ("BTO", "TSXV"), ("EVT", "TSX"), ("X", "NASDAQ")]
-    pairs = match_list(entries, universe)
-    assert [p["tv_ticker"] for p in pairs] == [
-        "OMXCOP:HLUN_A", "AMEX:REPX", "TSX:LAS.A",
-        None,             # ambiguous symbol, no exchange
-        None,             # not found
-        "TSX:BTO",        # mistyped exchange, same country
-        None,             # EVT in Toronto is not EVT on Xetra (another country)
-        "NYSE:X",         # NASDAQ:X not found, X unique in the United States
-    ]
 
 
 def test_missing_data_grouped_by_stock():

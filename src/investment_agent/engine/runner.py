@@ -5,7 +5,7 @@
 3. For each survivor: Yahoo (today's cache), match check, extraction of the fundamentals,
    then Yahoo filters.
 4. Score of the eligible stocks.
-5. Markdown report, detail CSV, comparison with --compare.
+5. Markdown report and detail CSV.
 
 The engine knows no rule: it calls the interface of the strategy module.
 Sources are injectable (Options.source_*) for tests without network access.
@@ -25,7 +25,6 @@ from pathlib import Path
 
 import pandas as pd
 
-from investment_agent.engine.comparison import compare, load_screen, screen_currencies
 from investment_agent.engine.config import load_config
 from investment_agent.engine.data import yahoo
 from investment_agent.engine.data.fx import eur_rates
@@ -50,7 +49,6 @@ PROGRESS_INTERVAL = 25
 @dataclass
 class Options:
     strategy: str = "higgons"
-    compare: Path | None = None          # TradingView list exported the same day (CSV)
     output: Path | None = None           # report folder (default: data/reports)
     no_cache: bool = False
     markets: list[str] | None = None     # subset of markets (partial run, for testing)
@@ -115,11 +113,6 @@ def run(options: Options | None = None) -> RunOutput:
     root = Path(options.root) if options.root else project_root()
     folder = Path(options.output) if options.output else root / "data" / "reports"
     cache = None if options.no_cache else root / "data" / "cache" / "yahoo"
-    screen = None
-    if options.compare is not None:
-        if not Path(options.compare).is_file():
-            raise FileNotFoundError(f"TradingView list not found: {options.compare}")
-        screen = load_screen(strategy.SCREEN_PATH)
 
     # 2. TradingView stage
     markets = list(options.markets or cfg["universe"]["markets"])
@@ -134,7 +127,6 @@ def run(options: Options | None = None) -> RunOutput:
         [tv_to_yahoo(t, m, mapping) for t, m in zip(universe["tv_ticker"], universe["market"])],
         index=universe.index, dtype=object)
     currencies = {c for col in strategy.CURRENCY_COLUMNS for c in universe[col].dropna() if isinstance(c, str)}
-    currencies |= screen_currencies(screen)
     rates = eur_rates(currencies, download=options.source_fx)
     warnings[CAT_RATES] = sorted(c for c in currencies if c not in rates)
 
@@ -177,12 +169,9 @@ def run(options: Options | None = None) -> RunOutput:
     ranking = strategy.rank(df, cfg)
     log.info("Eligible: %d", len(ranking))
 
-    # 5. Report, CSV, comparison
+    # 5. Report and CSV
     result = RunResult(run_date=date, universe=df, ranking=ranking, presentation=presentation,
                        warnings=warnings, n_markets=len(markets))
-    if screen is not None:
-        log.info("Comparison with %s", options.compare)
-        result.comparison = compare(df, options.compare, screen, rates, tech["comparison_tolerance"])
     meta = {
         "commit": current_commit(root),
         "start": start,

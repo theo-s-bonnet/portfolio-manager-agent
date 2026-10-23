@@ -79,7 +79,7 @@ def yahoo_data(**changes) -> YahooData:
     return d
 
 
-def fake_result(stocks: list[dict], data: dict, cfg: dict | None = None, comparison=None):
+def fake_result(stocks: list[dict], data: dict, cfg: dict | None = None):
     """Chains both stages without network access (as engine/runner.py does); returns a RunResult.
 
     `data`: {tv_ticker: YahooData} for the stocks that pass the TradingView stage.
@@ -111,7 +111,7 @@ def fake_result(stocks: list[dict], data: dict, cfg: dict | None = None, compari
     df[FIRST_FAILED_COLUMN] = first_failed_rule(df, columns)
     return RunResult(
         run_date=DATE, universe=df, ranking=strategy.rank(df, cfg),
-        presentation=presentation, comparison=comparison, n_markets=2,
+        presentation=presentation, n_markets=2,
         warnings={"TradingView markets with errors or truncated": [],
                   "Failed Yahoo matches": []},
     )

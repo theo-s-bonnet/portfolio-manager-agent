@@ -50,7 +50,6 @@ class RunResult:
     ranking: pd.DataFrame          # eligible stocks, ranked (score, rank, pct columns)
     presentation: Presentation
     warnings: dict[str, list[str]] = field(default_factory=dict)   # engine categories
-    comparison: dict | None = None
     n_markets: int = 0
 
 
@@ -197,40 +196,6 @@ def rules_not_applied_section(cfg: dict) -> list[str]:
             *table(["Rule", "Planned version", "Reason"], rows), ""]
 
 
-def comparison_section(comp: dict) -> list[str]:
-    output = ["## Comparison with the TradingView list", "",
-              f"File: `{comp['file']}`. Reproduced screen: {integer(comp['n_screen'])} stocks; "
-              f"exported list: {integer(comp['n_list'])} stocks; script: {integer(comp['n_script'])} "
-              f"eligible; common (exported list and script): {integer(comp['n_common'])}.", ""]
-    both = comp["both_lists"]
-    output += [f"### In both lists ({integer(len(both))})", ", ".join(both) if both else "None.", ""]
-
-    list_only = comp["list_only"]
-    output.append(f"### Only in the TradingView list ({integer(len(list_only))})")
-    output += table(["Stock (export)", "TradingView stock", "First failed rule", "Measured value"],
-                    [[e["export"], e["tv_ticker"] or "—", e["rule"] or "—", e["reason"]] for e in list_only]) \
-        if list_only else ["None."]
-    output.append("")
-
-    script_only = comp["script_only"]
-    output.append(f"### Only in the script ({integer(len(script_only))})")
-    output += table(["Stock", "TradingView screen criterion that would have excluded it"],
-                    [[e["tv_ticker"], e["criterion"]] for e in script_only]) if script_only else ["None."]
-    output.append("")
-
-    not_rep = comp["not_reproduced"]
-    output.append(f"### Exported list not reproduced by the recomputed screen ({integer(len(not_rep))})")
-    output += table(["Stock (export)", "TradingView stock", "Criterion at fault"],
-                    [[e["export"], e["tv_ticker"] or "—", e["criterion"]] for e in not_rep]) \
-        if not_rep else ["None."]
-    output.append("")
-
-    outside = comp["screen_not_in_list"]
-    output.append(f"### Kept by the recomputed screen, missing from the exported list ({integer(len(outside))})")
-    output += [", ".join(outside) if outside else "None.", ""]
-    return output
-
-
 def render_report(res: RunResult, cfg: dict, meta: dict) -> str:
     """Markdown text of the report. `meta`: commit, start (datetime), duration_s, partial_markets."""
     p, d = res.presentation, res.run_date
@@ -279,8 +244,6 @@ def render_report(res: RunResult, cfg: dict, meta: dict) -> str:
 
     output += warnings_section(res)
     output += rules_not_applied_section(cfg)
-    if res.comparison is not None:
-        output += comparison_section(res.comparison)
     return "\n".join(output).rstrip() + "\n"
 
 

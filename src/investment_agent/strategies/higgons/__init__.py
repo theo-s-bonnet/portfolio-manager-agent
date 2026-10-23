@@ -16,8 +16,6 @@ from investment_agent.strategies.higgons.scoring import COMPONENT_COLUMNS, pct_c
 TITLE = "Higgons"
 
 CONFIG_PATH = Path(__file__).with_name("config.yaml")
-# Manual TradingView screen, for --compare only (not a strategy rule).
-SCREEN_PATH = Path(__file__).with_name("screen_tradingview.yaml")
 
 # Required keys of config.yaml, checked by engine.config.validate_config.
 REQUIRED_KEYS: dict[str, list[str]] = {
@@ -106,7 +104,7 @@ def tv_fields(cfg: dict) -> dict[str, str]:
 
 
 __all__ = [
-    "WARNING_CATEGORIES", "CONFIG_PATH", "SCREEN_PATH", "REQUIRED_KEYS", "PRICE_COLUMN",
+    "WARNING_CATEGORIES", "CONFIG_PATH", "REQUIRED_KEYS", "PRICE_COLUMN",
     "PRICE_CURRENCY_COLUMN", "COUNTRY_COLUMN", "DESCRIPTION_COLUMNS", "CURRENCY_COLUMNS",
     "TV_STEPS", "YAHOO_STEPS", "TITLE", "tv_fields", "rank", "components",
     "price_start_date", "extract_yahoo", "filter_tv", "filter_yahoo",

@@ -118,26 +118,11 @@ def test_output_and_no_cache(tmp_path):
 
 
 def test_command_arguments():
-    args = parse_args(["run", "--compare", "list.csv", "--no-cache", "--markets", "america, uk"])
+    args = parse_args(["run", "--no-cache", "--markets", "america, uk"])
     assert args.command == "run" and args.no_cache and args.strategy == "higgons"
-    assert str(args.compare) == "list.csv" and args.markets == "america, uk"
-
-
-def test_run_with_comparison(tmp_path):
-    exported = tmp_path / "tickers.csv"
-    exported.write_text("Ticker,Exchange\nAAA,NYSE\nDDD,NASDAQ\nZZZ,OTC\n", encoding="utf-8")
-    output = run(options(tmp_path, compare=exported))
-    comp = output.result.comparison
-    assert comp["both_lists"] == ["NYSE:AAA"]
-    assert [(e["tv_ticker"], e["rule"]) for e in comp["list_only"]] == [
-        ("NASDAQ:DDD", "yahoo_match"), (None, None)]
-    assert comp["script_only"][0]["tv_ticker"] == "OSL:BBB"
-    assert "## Comparison with the TradingView list" in output.report.read_text(encoding="utf-8")
-
-
-def test_missing_list(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        run(options(tmp_path, compare=tmp_path / "missing.csv"))
+    assert args.markets == "america, uk"
+    with pytest.raises(SystemExit):
+        parse_args(["run", "--compare", "list.csv"])
 
 
 def test_every_market_failing(tmp_path):

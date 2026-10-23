@@ -144,8 +144,7 @@ The report below is the reference used by the tests: three fictional stocks
 ```
 
 The full report also lists data warnings (failed Yahoo matches, missing exchange rates,
-exchanges without a Yahoo mapping, suspect share ratios), the rules not implemented yet, and,
-with `--compare`, a comparison with a list exported from a manual TradingView screen.
+exchanges without a Yahoo mapping, suspect share ratios) and the rules not implemented yet.
 
 ## Installation
 
@@ -174,7 +173,6 @@ pip install -e ".[dev]"
 ```bash
 python -m investment_agent run                            # full run (about 10 minutes)
 python -m investment_agent run --markets america,uk       # partial run, for a quick test
-python -m investment_agent run --compare data/lists/tickers.csv   # + comparison with a TradingView export
 python -m investment_agent run --no-cache                 # ignore today's Yahoo cache
 python -m investment_agent run --output some/folder       # write the report elsewhere
 ```
@@ -182,22 +180,16 @@ python -m investment_agent run --output some/folder       # write the report els
 Outputs go to `data/` (not tracked by Git):
 
 - `data/reports/YYYY-MM-DD_higgons.md`: funnel by rule, ranking, exclusions for missing data,
-  warnings, rules not applied, optional comparison;
+  warnings, rules not applied;
 - `data/reports/latest_run_detail.csv`: one row per stock of the universe with the raw data
   and the status and reason of every rule; standard CSV (comma, decimal point, UTF-8),
   overwritten on every run;
 - `data/cache/yahoo/YYYY-MM-DD/`: today's Yahoo cache, so a second run on the same day is fast.
 
-The list given to `--compare` is a CSV exported from a TradingView screen on the same day
-(`Ticker,Exchange` columns or `EXCHANGE:SYMBOL`, separated by `,` or `;`). The manual screen is
-described in [`screen_tradingview.yaml`](src/investment_agent/strategies/higgons/screen_tradingview.yaml)
-and recomputed on the downloaded data, so every difference between the two lists is explained
-by a rule or by a data difference.
-
 ## Tests
 
 ```bash
-pytest               # unit tests, no network (169 tests)
+pytest               # unit tests, no network (160 tests)
 pytest -m network    # one real call per source (TradingView, Yahoo)
 python scripts/check_tv_fields.py   # checks the TradingView field names against Yahoo (network)
 ```
@@ -215,14 +207,12 @@ src/investment_agent/
 │   ├── statuses.py           pass / fail / missing, eligibility, first failed rule
 │   ├── runner.py             orchestration of a run
 │   ├── report.py             Markdown report and detail CSV
-│   ├── comparison.py         comparison with an exported TradingView list
 │   └── data/                 tradingview.py, yahoo.py (with cache), fx.py, tickers.py, yahoo_mapping.yaml
 └── strategies/higgons/       one strategy = one folder, no network call
     ├── config.yaml           thresholds, weights, field names, data-quality parameters
     ├── filters.py            one pure function per rule
     ├── fundamentals.py       Y and Y-2 extraction from Yahoo statements
-    ├── scoring.py            composite score
-    └── screen_tradingview.yaml   manual screen used by --compare
+    └── scoring.py            composite score
 scripts/check_tv_fields.py    one-off check of the TradingView fields
 tests/                        unit tests, fake data (helpers.py), expected report
 ```
@@ -249,7 +239,7 @@ tests/                        unit tests, fake data (helpers.py), expected repor
 
 | Version | Content | Status |
 |---|---|---|
-| V1 | Screener: universe, eligibility filters, composite score, Markdown report, comparison with a manual screen | Done (this release) |
+| V1 | Screener: universe, eligibility filters, composite score, Markdown report | Done (this release) |
 | V2 | First LLM agent: calls the screener as a tool and writes a standardized analysis sheet for the top candidates (red flags, dominant risk factor, sources); all calculations stay in the tools | Planned |
 | V3 | Positions and exit rules (technical, valuation, eligibility, dilution), trade journal | Planned |
 | V4 | Scheduled weekly run, report delivered without intervention | Planned |
