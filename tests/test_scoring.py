@@ -5,8 +5,9 @@ import math
 import pandas as pd
 import pytest
 
-from helpers import config
-from investment_agent.strategies.higgons import rank
+from helpers import DATE, RATES, config, tv_stock, universe
+from investment_agent.strategies.higgons import filter_tv, rank
+from investment_agent.strategies.higgons.filters import RULE_COLUMNS
 
 CFG = config()
 WEIGHTS = CFG["score"]["weights"]
@@ -14,7 +15,7 @@ WEIGHTS = CFG["score"]["weights"]
 
 def stocks(rows):
     """rows: (tv_ticker, perf, retained pe, roe, cagr, nd/ebitda, eligible)."""
-    columns = ["tv_ticker", "perf_6m", "pe_retained", "roe_ttm", "revenue_cagr_5y", "net_debt_ebitda", "eligible"]
+    columns = ["tv_ticker", "perf_6m", "pe_retained", "roe_retained", "revenue_cagr_5y", "net_debt_ebitda", "eligible"]
     return pd.DataFrame(rows, columns=columns)
 
 
@@ -85,6 +86,21 @@ def test_value_ranked_on_the_retained_pe():
     df["pe_ttm"] = [5.0, 6.0, 7.0]                 # TradingView P/E: would give the opposite order for A
     res = rank(df, CFG).set_index("tv_ticker")
     assert res["pct_value"].to_dict() == {"XETR:B": 100, "XETR:C": 50, "XETR:A": 0}
+
+
+def test_negative_roe_ranked_last_and_reported():
+    df = filter_tv(universe(*[tv_stock(tv_ticker=f"XETR:{t}", roe_ttm=r) for t, r in
+                              (("A", -5.0), ("B", 10.0), ("C", 20.0))]), CFG, RATES, DATE)
+    df["eligible"] = df[RULE_COLUMNS].eq("pass").all(axis=1)
+    res = rank(df, CFG).set_index("tv_ticker")
+    assert res["pct_quality"].to_dict() == {"XETR:A": 0, "XETR:B": 50, "XETR:C": 100}
+    assert df["warnings"].tolist() == [[("ROE ≤ 0, ranked last on quality", "ROE -5%")], [], []]
+
+
+def test_eligible_stock_without_roe_stops_the_ranking():
+    df = stocks([("XETR:A", 10, 8, 15, 7, 1.0, True), ("XETR:B", 10, 8, math.nan, 7, 1.0, True)])
+    with pytest.raises(ValueError, match="XETR:B"):
+        rank(df, CFG)
 
 
 def test_config_weights_sum_to_1():

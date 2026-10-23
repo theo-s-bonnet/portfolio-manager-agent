@@ -167,9 +167,49 @@ def test_zero_6_month_performance():
     assert tv(perf_6m=-0.1)["R4.6"] == "fail"
 
 
+# --- retained ROE and data guard R4.11 -------------------------------------------------------
+
 def test_roe_nan_never_replaced_by_zero():
-    row = tv(roe_ttm=nan)
-    assert pd.isna(row["roe_ttm"])
+    row = tv(roe_ttm=nan, shareholders_equity=nan)
+    assert row["R4.11"] == "missing"
+    assert pd.isna(row["roe_ttm"]) and pd.isna(row["roe_retained"])
+
+
+def test_zero_roe_is_a_value():
+    row = tv(roe_ttm=0.0)
+    assert row["R4.11"] == "pass" and row["roe_retained"] == 0.0
+
+
+def test_roe_fallback_on_net_income_and_equity():
+    row = tv(roe_ttm=nan, net_income_ttm=1e8, shareholders_equity=5e8)
+    assert (row["roe_retained"], row["roe_source"], row["R4.11"]) == (20.0, "fallback", "pass")
+    assert row["reason_R4.11"] == "fallback: TradingView ROE missing, TTM net income / shareholders' equity = 20%"
+    assert warnings(row, "Retained ROE") == ["retained ROE 20%"]
+
+
+def test_roe_fallback_not_computed_on_negative_equity():
+    row = tv(roe_ttm=nan, shareholders_equity=-1e8)
+    assert pd.isna(row["roe_calc"]) and pd.isna(row["roe_retained"])
+    assert row["R4.11"] == "missing"
+    assert row["reason_R4.11"] == "ROE missing; fallback not computed: shareholders' equity -100,000,000 ≤ 0"
+
+
+def test_roe_fallback_not_computed_on_zero_equity():
+    row = tv(roe_ttm=nan, shareholders_equity=0.0)
+    assert row["R4.11"] == "missing" and pd.isna(row["roe_calc"])
+
+
+def test_roe_and_equity_missing():
+    row = tv(roe_ttm=nan, shareholders_equity=nan)
+    assert row["R4.11"] == "missing"
+    assert row["reason_R4.11"] == ("ROE missing; fallback not computed: shareholders' equity / TTM net income "
+                                   "missing")
+
+
+def test_tradingview_roe_has_priority():
+    row = tv(roe_ttm=15.0, net_income_ttm=1e8, shareholders_equity=5e8)     # roe_calc 20
+    assert (row["roe_retained"], row["roe_source"], row["roe_calc"]) == (15.0, "tv", 20.0)
+    assert warnings(row, "Retained ROE") == []
 
 
 def test_net_debt_missing():

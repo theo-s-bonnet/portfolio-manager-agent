@@ -18,9 +18,10 @@ Sources: TradingView (delayed data). Exchange rates: last Yahoo Finance close av
 | R4.5 price above the EMA | 3 | 0 | 0 |
 | R4.6 6-month performance | 3 | 0 | 0 |
 | R3.6 price history (first TradingView bar) | 3 | 0 | 0 |
-| R4.12 EBITDA and EPS denominators | 3 | 0 | 0 |
-| Yahoo ticker available | 3 | 0 | 0 |
-| **Eligible** | **3** |  |  |
+| R4.11 data needed by the score | 2 | 1 | 1 |
+| R4.12 EBITDA and EPS denominators | 2 | 0 | 0 |
+| Yahoo ticker available | 2 | 0 | 0 |
+| **Eligible** | **2** |  |  |
 
 Each stock is counted at the first step it fails.
 
@@ -28,9 +29,8 @@ Each stock is counted at the first step it fails.
 
 | # | Stock | Name | Country | Sector | Score | Perf 6M | P/E | ROE | Rev. CAGR 5y | ND/EBITDA |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 1 | OSL:BBB (BBB.OL) | Bravo ASA | Norway | Transportation | 87.5 | +40.0% (100) | 9.0 (50) | 25.0% (100) | 12.0% (100) | −0.5 (100) |
-| 2 | EURONEXT:AAA (AAA.PA) | Alpha SA | France | Producer Manufacturing | 42.5 | +25.0% (50) | 6.0 (100) | 18.0% (0) | 8.0% (0) | 0.5 (25) |
-| 3 | XETR:CCC (CCC.DE) | Charlie AG | Germany | Producer Manufacturing | — | +15.0% (0) | 10.0 (0) | — (—) | 10.0% (50) | 0.5 (25) |
+| 1 | OSL:BBB (BBB.OL) | Bravo ASA | Norway | Transportation | 75.0 | +40.0% (100) | 9.0 (0) | 25.0% (100) | 12.0% (100) | −0.5 (100) |
+| 2 | EURONEXT:AAA (AAA.PA) | Alpha SA | France | Producer Manufacturing | 25.0 | +25.0% (0) | 6.0 (100) | 18.0% (0) | 8.0% (0) | 0.5 (0) |
 
 Raw value, then percentile rank among eligible stocks in parentheses.
 
@@ -38,7 +38,11 @@ Raw value, then percentile rank among eligible stocks in parentheses.
 
 Stocks that pass every evaluated rule except one or more rules in `missing`.
 
-None.
+Stocks concerned: 1.
+
+| Stock | Rules in `missing` | Missing or doubtful data |
+|---|---|---|
+| XETR:CCC (CCC.DE) | R4.11 | ROE missing; fallback not computed: shareholders' equity -100,000,000 ≤ 0 |
 
 ## Warnings
 
@@ -51,9 +55,14 @@ None.
 ### Statutory country (ISIN prefix) outside the EU/EEA: check PEA eligibility (0)
 None.
 
-### Eligible by country (3)
+### Retained ROE: fallback to TTM net income / shareholders' equity (TradingView ROE missing) (0)
+None.
+
+### ROE ≤ 0, ranked last on quality (0)
+None.
+
+### Eligible by country (2)
 - France: 1
-- Germany: 1
 - Norway: 1
 
 ## Rules not applied or applied with a limitation

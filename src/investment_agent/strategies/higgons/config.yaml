@@ -64,6 +64,7 @@ tradingview_fields:                               # checked against the scanner 
   pe_ttm: price_earnings_ttm
   eps_ttm: earnings_per_share_diluted_ttm
   roe_ttm: return_on_equity
+  shareholders_equity: shrhldrs_equity_fq         # last quarter, attributable to shareholders (ROE fallback)
   revenue_cagr_5y: total_revenue_cagr_5y
   net_debt: net_debt
   ebitda_ttm: ebitda

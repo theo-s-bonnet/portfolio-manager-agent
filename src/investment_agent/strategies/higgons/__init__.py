@@ -8,7 +8,8 @@ No network call in this folder: the engine downloads, the strategy computes.
 
 from pathlib import Path
 
-from investment_agent.strategies.higgons.filters import CATEGORY_ISIN, CATEGORY_PE_FALLBACK, filter_tv
+from investment_agent.strategies.higgons.filters import (
+    CATEGORY_ISIN, CATEGORY_PE_FALLBACK, CATEGORY_ROE_FALLBACK, CATEGORY_ROE_NEGATIVE, filter_tv)
 from investment_agent.strategies.higgons.scoring import COMPONENT_COLUMNS, pct_column, rank
 
 TITLE = "Higgons"
@@ -31,7 +32,7 @@ REQUIRED_KEYS: dict[str, list[str]] = {
     "tradingview_fields": [
         "type", "subtype", "primary", "exchange", "country", "isin", "name", "sector", "industry",
         "currency", "reporting_currency", "market_cap", "price", "avg_volume_3m", "pe_ttm",
-        "eps_ttm", "roe_ttm", "revenue_cagr_5y", "net_debt", "ebitda_ttm",
+        "eps_ttm", "roe_ttm", "shareholders_equity", "revenue_cagr_5y", "net_debt", "ebitda_ttm",
         "net_income_ttm", "ema", "perf_6m", "first_bar_time",
     ],
     "technical": [
@@ -60,6 +61,7 @@ TV_STEPS = [
 ]
 GUARD_STEPS = [
     ("R3.6", "R3.6 price history (first TradingView bar)"),
+    ("R4.11", "R4.11 data needed by the score"),
     ("R4.12", "R4.12 EBITDA and EPS denominators"),
 ]
 DESCRIPTION_COLUMNS = [("Name", "name"), ("Country", "country"), ("Sector", "sector")]
@@ -67,7 +69,7 @@ DESCRIPTION_COLUMNS = [("Name", "name"), ("Country", "country"), ("Sector", "sec
 CURRENCY_COLUMNS = ["currency", "reporting_currency"]
 COUNTRY_COLUMN = "country"
 # Strategy warning categories (column `warnings` filled by filter_tv), in report order.
-WARNING_CATEGORIES = [CATEGORY_PE_FALLBACK, CATEGORY_ISIN]
+WARNING_CATEGORIES = [CATEGORY_PE_FALLBACK, CATEGORY_ISIN, CATEGORY_ROE_FALLBACK, CATEGORY_ROE_NEGATIVE]
 _COMPONENT_DISPLAY = {
     "momentum": ("Perf 6M", "signed_pct"),
     "value": ("P/E", "number"),

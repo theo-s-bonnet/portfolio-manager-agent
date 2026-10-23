@@ -22,6 +22,7 @@ import pandas as pd
 from investment_agent.engine.data.fx import to_eur
 from investment_agent.engine.finance import is_number, safe_ratio
 from investment_agent.engine.statuses import FAIL, MISSING, PASS, WARNINGS_COLUMN, reason_column
+from investment_agent.strategies.higgons.scoring import COMPONENT_COLUMNS, ROE_COLUMN
 
 Rule = Callable[[pd.DataFrame, dict], tuple[pd.Series, pd.Series]]
 
@@ -125,9 +126,31 @@ def retained_pe(pe_ttm, eps_ttm, market_cap, net_income_ttm, tol: float):
     return pe_calc, pe_tv, PE_TV
 
 
+# Source of the retained ROE (column roe_source).
+ROE_TV, ROE_FALLBACK = "tv", "fallback"
+
+
+def retained_roe(roe_ttm, net_income_ttm, shareholders_equity):
+    """(roe_calc, roe_retained, roe_source) of one stock, in %; pure function.
+
+    roe_calc = TTM net income / shareholders' equity of the last quarter x 100, not computed if
+    the equity is <= 0 or missing (denominator rule). The TradingView ROE has priority, even
+    <= 0 (`tv`); roe_calc is used only when it is missing (`fallback`).
+    """
+    ratio = safe_ratio(net_income_ttm, shareholders_equity)
+    roe_calc = None if ratio is None else ratio * 100
+    roe = _number(roe_ttm)
+    if roe is not None:
+        return roe_calc, roe, ROE_TV
+    if roe_calc is not None:
+        return roe_calc, roe_calc, ROE_FALLBACK
+    return None, None, None
+
+
 def add_derived_columns(df: pd.DataFrame, rates: dict[str, float], tol: float) -> pd.DataFrame:
     """Adds market_cap_eur (R3.2), liquidity_eur (R3.3), net_debt_ebitda (R4.4),
-    first_bar_date (R3.6) and the retained P/E (R4.1): pe_calc, pe_retained, pe_source.
+    first_bar_date (R3.6), the retained P/E (R4.1: pe_calc, pe_retained, pe_source) and the
+    retained ROE (score: roe_calc, roe_retained, roe_source).
 
     The market cap is converted with the currency of the amounts (`reporting_currency`), the
     liquidity (average volume x last price) with the price currency (`currency`): in London
@@ -156,6 +179,11 @@ def add_derived_columns(df: pd.DataFrame, rates: dict[str, float], tol: float) -
     df["pe_calc"] = pd.Series([calc for calc, _, _ in pe], index=df.index, dtype="float64")
     df["pe_retained"] = pd.Series([pe_ for _, pe_, _ in pe], index=df.index, dtype="float64")
     df["pe_source"] = pd.Series([source for _, _, source in pe], index=df.index, dtype=object)
+    roe = [retained_roe(*row) for row in
+           zip(df["roe_ttm"], df["net_income_ttm"], df["shareholders_equity"])]
+    df["roe_calc"] = pd.Series([calc for calc, _, _ in roe], index=df.index, dtype="float64")
+    df["roe_retained"] = pd.Series([roe_ for _, roe_, _ in roe], index=df.index, dtype="float64")
+    df["roe_source"] = pd.Series([source for _, _, source in roe], index=df.index, dtype=object)
     return df
 
 
@@ -411,6 +439,36 @@ def r4_5(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
     return _apply(df, rule)
 
 
+def _roe_missing_reason(v: dict) -> str:
+    equity = _number(v.get("shareholders_equity"))
+    if equity is not None and equity <= 0:
+        return f"ROE missing; fallback not computed: shareholders' equity {_v(equity)} ≤ 0"
+    return "ROE missing; fallback not computed: shareholders' equity / TTM net income missing"
+
+
+def r4_11(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
+    """Data guard: every measure of the score is a number (R4.11 applied to the score).
+
+    In practice the retained ROE is the only measure that no criterion checks: when it is
+    missing, the reason explains why the fallback was not computed (the other measures are
+    already reported by their criterion). A ROE <= 0 is a value (ranked as is).
+    """
+    columns = [COMPONENT_COLUMNS[c] for c in cfg["score"]["weights"] if c in COMPONENT_COLUMNS]
+
+    def rule(v):
+        missing = [c for c in columns if _number(v.get(c)) is None]
+        if ROE_COLUMN in missing:
+            return MISSING, _roe_missing_reason(v)
+        if missing:
+            return MISSING, f"score data missing: {', '.join(missing)}"
+        if v.get("roe_source") == ROE_FALLBACK:
+            return PASS, (f"fallback: TradingView ROE missing, TTM net income / shareholders' equity "
+                          f"= {_v(v[ROE_COLUMN])}%")
+        return PASS, ""
+
+    return _apply(df, rule)
+
+
 def r4_12(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
     """Data guard on the denominators: EBITDA TTM > 0 and EPS TTM > 0."""
     tol = _tol(cfg)
@@ -432,24 +490,36 @@ def r4_12(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
 
 CATEGORY_PE_FALLBACK = "Retained P/E: fallback to market cap / TTM net income (TradingView P/E missing)"
 CATEGORY_ISIN = "Statutory country (ISIN prefix) outside the EU/EEA: check PEA eligibility"
+CATEGORY_ROE_FALLBACK = ("Retained ROE: fallback to TTM net income / shareholders' equity "
+                         "(TradingView ROE missing)")
+CATEGORY_ROE_NEGATIVE = "ROE ≤ 0, ranked last on quality"
 
 
 def warnings_column(df: pd.DataFrame, cfg: dict) -> pd.Series:
-    """List of (category, text) per stock, for the stocks that pass the universe rules.
+    """List of (category, text) per stock.
 
-    Retained P/E from the fallback (TradingView P/E missing). ISIN prefix outside the EU/EEA: the TradingView `country` is the declared (often
-    operational) headquarters; the ISIN prefix usually gives the country of incorporation.
+    For the stocks that pass the universe rules: retained P/E or retained ROE from the fallback;
+    ISIN prefix outside the EU/EEA (the TradingView `country` is the declared, often operational,
+    headquarters; the ISIN prefix usually gives the country of incorporation). For the stocks
+    that also pass the selection criteria: ROE <= 0, ranked last on quality.
     """
     prefixes = tuple(str(p).upper() for p in cfg["technical"]["eu_eea_isin_prefixes"])
+    tol = _tol(cfg)
     in_universe = df[list(UNIVERSE_RULES)].eq(PASS).all(axis=1)
+    selected = in_universe & df[list(CRITERIA)].eq(PASS).all(axis=1)
     result = []
-    for ok, v in zip(in_universe, df.to_dict("records")):
+    for ok, sel, v in zip(in_universe, selected, df.to_dict("records")):
         items: list[tuple[str, str]] = []
         if ok and v.get("pe_source") == PE_FALLBACK:
             items.append((CATEGORY_PE_FALLBACK, f"retained P/E {_v(v['pe_retained'])}"))
         isin = _text(v.get("isin"))
         if ok and isin is not None and not isin.upper().startswith(prefixes):
             items.append((CATEGORY_ISIN, f"ISIN {isin}, headquarters {_text(v.get('country'))}"))
+        if ok and v.get("roe_source") == ROE_FALLBACK:
+            items.append((CATEGORY_ROE_FALLBACK, f"retained ROE {_v(v[ROE_COLUMN])}%"))
+        roe = _number(v.get(ROE_COLUMN))
+        if sel and roe is not None and _le(roe, 0, tol):
+            items.append((CATEGORY_ROE_NEGATIVE, f"ROE {_v(roe)}%"))
         result.append(items)
     return pd.Series(result, index=df.index, dtype=object)
 
@@ -474,6 +544,7 @@ CRITERIA: dict[str, Rule] = {
 }
 # Data guards: R3.6 (needs the run date, applied first), then these ones.
 DATA_GUARDS: dict[str, Rule] = {
+    "R4.11": r4_11,
     "R4.12": r4_12,
 }
 RULE_COLUMNS = [*UNIVERSE_RULES, *CRITERIA, "R3.6", *DATA_GUARDS]

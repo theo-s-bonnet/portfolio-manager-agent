@@ -31,6 +31,7 @@ def tv_stock(**changes) -> dict:
         "industry": "Industrial Machinery", "currency": "EUR", "reporting_currency": "EUR",
         "market_cap": 1.0e9, "price": 50.0,
         "avg_volume_3m": 100_000.0, "pe_ttm": 8.0, "eps_ttm": 6.25, "roe_ttm": 20.0,
+        "shareholders_equity": 5.0e8,
         "revenue_cagr_5y": 10.0, "net_debt": 100.0, "ebitda_ttm": 200.0,
         "net_income_ttm": 1.0e8, "ema": 45.0, "perf_6m": 15.0,
         "first_bar_time": unix_time("2015-01-02"),
@@ -69,7 +70,7 @@ def fake_result(stocks: list[dict], cfg: dict | None = None):
 
 def three_stocks() -> list[dict]:
     """Stocks of the reference report: two eligible stocks, one excluded because its ROE is
-    missing."""
+    missing and cannot be computed (negative equity)."""
     return [
         tv_stock(tv_ticker="EURONEXT:AAA", yahoo_ticker="AAA.PA", market="france", exchange="EURONEXT",
                  country="France", isin="FR000TEST0A1", name="Alpha SA", perf_6m=25.0, pe_ttm=6.0,
@@ -80,5 +81,6 @@ def three_stocks() -> list[dict]:
                  currency="NOK", reporting_currency="NOK", market_cap=5.0e9, net_income_ttm=6e8, price=100.0,
                  avg_volume_3m=50_000.0, ema=90.0, perf_6m=40.0, pe_ttm=9.0, roe_ttm=25.0,
                  revenue_cagr_5y=12.0, net_debt=-20.0, ebitda_ttm=40.0),
-        tv_stock(tv_ticker="XETR:CCC", yahoo_ticker="CCC.DE", name="Charlie AG", roe_ttm=float("nan")),
+        tv_stock(tv_ticker="XETR:CCC", yahoo_ticker="CCC.DE", name="Charlie AG", roe_ttm=float("nan"),
+                 shareholders_equity=-1e8),
     ]
