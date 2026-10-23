@@ -1,5 +1,5 @@
-"""Command: python -m investment_agent run [--strategy higgons] [--compare PATH] [--output DIR]
-[--no-cache] [--markets america,uk]."""
+"""Command: python -m investment_agent run [--strategy higgons] [--output DIR]
+[--markets france,germany]."""
 
 from __future__ import annotations
 
@@ -18,11 +18,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     commands = parser.add_subparsers(dest="command", required=True)
     run_cmd = commands.add_parser("run", help="runs the screener and writes the report")
     run_cmd.add_argument("--strategy", default="higgons", help="strategy folder (default: higgons)")
-    run_cmd.add_argument("--compare", type=Path, metavar="PATH",
-                         help="TradingView list exported the same day (CSV) to compare with")
     run_cmd.add_argument("--output", type=Path, metavar="DIR",
                          help="folder of the report and the CSV (default: data/reports)")
-    run_cmd.add_argument("--no-cache", action="store_true", help="ignores today's Yahoo cache")
     run_cmd.add_argument("--markets", metavar="LIST",
                          help="comma-separated TradingView markets (partial run, for testing)")
     return parser.parse_args(argv)
@@ -35,9 +32,7 @@ def main(argv: list[str] | None = None) -> int:
         logging.getLogger(noisy).setLevel(logging.CRITICAL)
     options = Options(
         strategy=args.strategy,
-        compare=args.compare,
         output=args.output,
-        no_cache=args.no_cache,
         markets=[m.strip() for m in args.markets.split(",") if m.strip()] if args.markets else None,
     )
     try:

@@ -2,18 +2,24 @@
 # Units are in the key names. Operators (<=, <, >) are fixed by each rule in the code;
 # thresholds always live here. Any change increments config_version.
 strategy: higgons
-strategy_version: "1.1"         # version of the written rule set
-config_version: "1.0.0"         # incremented on every change to this file
+strategy_version: "2.0"         # version of the written rule set
+config_version: "2.0.0"         # incremented on every change to this file
 
 universe:
-  markets: [america, canada,                                  # EU + EEA + United Kingdom + Switzerland
-            austria, belgium, bulgaria, croatia, cyprus, czech, denmark, estonia,
+  markets: [austria, belgium, bulgaria, croatia, cyprus, czech, denmark, estonia,      # EU + EEA
             finland, france, germany, greece, hungary, iceland, ireland, italy,
             latvia, lithuania, luxembourg, netherlands, norway, poland, portugal,
-            romania, slovakia, slovenia, spain, sweden, switzerland, uk]
+            romania, slovakia, slovenia, spain, sweden]
+  hq_countries: [Austria, Belgium, Bulgaria, Croatia, Cyprus, Czech Republic, Denmark,  # TradingView spelling
+                 Estonia, Finland, Aland Islands, France, La Reunion, Germany, Greece,
+                 Hungary, Iceland, Ireland, Italy, Latvia, Liechtenstein, Lithuania,
+                 Luxembourg, Malta, Netherlands, Norway, Poland, Portugal, Romania,
+                 Slovakia, Slovenia, Spain, Sweden]
   excluded_exchanges: [OTC]
   allowed_types: [stock]                          # funds, ETFs, units, REITs: type fund; depositary receipts: dr
-  excluded_typespecs: []                          # on the stock side, TradingView only has common and preferred
+  excluded_typespecs: [preferred]
+  typespec_exempt_markets:                        # German preference shares (no voting rights) are often
+    preferred: [germany]                          # the only listed line
   excluded_fund_industries: ["Investment Trusts/Mutual Funds"]
   excluded_bank_insurance_industries:             # brokers and investment banks are kept
     - Major Banks
@@ -27,20 +33,14 @@ universe:
   market_cap_max_eur: 10000000000
   liquidity_min_eur_per_day: 100000
   price_history_months: 6
-  balance_sheet_history_years: 3
 
 filters:
-  pe_ttm_max: 12
-  roe_ttm_min_pct: 10
+  pe_max: 12                                      # retained P/E
   revenue_cagr_5y_min_pct: 5
   net_debt_ebitda_max: 3
   ema_period: 100
   ema_entry_pct: 102                              # entry above the EMA, exit lower: avoids round trips
   perf_6m_min_pct: 0
-  debt_to_equity_decrease_min_points: 10
-  dilution_annual_max_pct: 5
-  dilution_years: 2
-  dilution_recent_max_pct: 5
 
 score:
   weights:   {momentum: 0.30, value: 0.25, quality: 0.20, growth: 0.15, balance_sheet: 0.10}
@@ -51,11 +51,12 @@ tradingview_fields:                               # checked against the scanner 
   subtype: typespecs
   primary: is_primary
   exchange: exchange
-  country: country
+  country: country                                # declared headquarters, often the operational seat
+  isin: isin
   name: description
   sector: sector
   industry: industry
-  currency: currency                              # price currency (GBX in London)
+  currency: currency                              # price currency
   reporting_currency: fundamental_currency_code   # currency of the amounts (market cap, debt, EBITDA...)
   market_cap: market_cap_basic
   price: close
@@ -63,47 +64,45 @@ tradingview_fields:                               # checked against the scanner 
   pe_ttm: price_earnings_ttm
   eps_ttm: earnings_per_share_diluted_ttm
   roe_ttm: return_on_equity
+  shareholders_equity: shrhldrs_equity_fq         # last quarter, attributable to shareholders (ROE fallback)
   revenue_cagr_5y: total_revenue_cagr_5y
   net_debt: net_debt
   ebitda_ttm: ebitda
-  net_debt_ebitda_tv: net_debt_to_ebitda_fq       # used by --compare only (MRQ / TTM)
   net_income_ttm: net_income_ttm
   ema: EMA100
   perf_6m: Perf.6M
+  first_bar_time: first_bar_time                  # Unix time of the symbol's first bar (reset by a ticker change)
 
 technical:                                        # data-quality parameters, not strategy rules
   comparison_tolerance: 1.0e-9
-  balance_sheet_date_tolerance_days: 45
   history_start_tolerance_days: 7
-  tv_yahoo_price_gap_max_pct: 10
-  suspect_share_ratio_min: 0.5
-  suspect_share_ratio_max: 2.0
-  yahoo_pause_s: 0.5
   tradingview_limit: 100000
+  eu_eea_isin_prefixes: [AT, BE, BG, CY, CZ, CS, DE, DK, EE, ES, FI, FR, GR, HR, HU, IE,   # warning only
+                         IS, IT, LI, LT, LU, LV, MT, NL, "NO", PL, PT, RO, SE, SI, SK]     # CS: legacy Czech prefix; "NO" quoted (YAML boolean)
 
 rules:                                            # register read by the report
-  R3.1:   {status: implemented}
-  R3.2:   {status: implemented}
-  R3.3:   {status: implemented, note: "90-day average volume x last price"}
-  R3.4:   {status: implemented, note: "SPACs listed as common stock cannot be detected"}
-  R3.5:   {status: implemented}
-  R3.6:   {status: implemented}
-  R4.1:   {status: implemented}
-  R4.2:   {status: implemented}
-  R4.3:   {status: implemented}
-  R4.4:   {status: implemented}
-  R4.5:   {status: implemented}
-  R4.6:   {status: implemented}
-  R4.7:   {status: implemented}
-  R4.8:   {status: implemented}
-  R4.9:   {status: implemented}
-  R4.10a: {status: implemented}
-  R4.10b: {status: implemented}
-  R4.11:  {status: implemented}
-  R4.12:  {status: implemented}
+  R3.1:   {status: implemented, kind: universe, note: "headquarters country from TradingView (may be the operational seat); PEA eligibility confirmed with the broker"}
+  R3.2:   {status: implemented, kind: universe}
+  R3.3:   {status: implemented, kind: universe, note: "90-day average volume x last price"}
+  R3.4:   {status: implemented, kind: universe, note: "SPACs listed as common stock cannot be detected"}
+  R3.5:   {status: implemented, kind: universe}
+  R4.1:   {status: implemented, kind: criterion}
+  R4.3:   {status: implemented, kind: criterion}
+  R4.4:   {status: implemented, kind: criterion}
+  R4.5:   {status: implemented, kind: criterion}
+  R4.6:   {status: implemented, kind: criterion}
+  R3.6:   {status: implemented, kind: data_guard}
+  R4.11:  {status: implemented, kind: data_guard}
+  R4.12:  {status: implemented, kind: data_guard}
+  R4.2:   {status: removed, reason: "no longer a filter; ROE stays in the score"}
+  R4.7:   {status: removed, reason: "debt trajectory shown in the analysis notes, without veto"}
+  R4.8:   {status: removed, reason: "redundant with P/E > 0 and EPS > 0"}
+  R4.9:   {status: removed, reason: "penalised buybacks and high dividends"}
+  R4.10a: {status: removed, reason: "dilution is no longer a filter"}
+  R4.10b: {status: removed, reason: "becomes exit rule S5 for held positions"}
   R1:     {status: not_implemented, version: out_of_scope, reason: "overall allocation, checked manually"}
   R2.4:   {status: not_implemented, version: V3}
   R6:     {status: not_implemented, version: V5, reason: "portfolio construction"}
-  R8:     {status: not_implemented, version: V5, reason: "allocation between brokerage accounts"}
+  R8:     {status: not_implemented, version: V3, reason: "PEA contribution ceiling and currency exposure"}
   S1-S5:  {status: not_implemented, version: V3, reason: "positions and exit rules (S2 in V6)"}
   R10:    {status: not_implemented, version: V3, reason: "trade journal"}

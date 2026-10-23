@@ -2,7 +2,8 @@
 
 The engine knows no strategy rule: the list of required keys is supplied by the strategy
 (`required_keys`). The engine only checks the shape: sections present, numbers positive or
-zero, score weights that sum to 1, no `TO_CONFIRM` value left, well-formed rule register.
+zero, score weights that sum to 1, no `TO_CONFIRM` value left, well-formed rule register
+(status implemented with a kind, not_implemented with a planned version, removed with a reason).
 """
 
 from __future__ import annotations
@@ -29,7 +30,8 @@ ENGINE_SECTIONS = (
 # Sections whose numeric values must all be positive or zero.
 NUMERIC_SECTIONS = ("universe", "filters", "technical")
 ALLOWED_DIRECTIONS = ("high", "low")
-RULE_STATUSES = ("implemented", "not_implemented")
+RULE_STATUSES = ("implemented", "not_implemented", "removed")
+RULE_KINDS = ("universe", "criterion", "data_guard")
 
 
 class InvalidConfig(Exception):
@@ -143,9 +145,13 @@ def _rule_errors(cfg: dict) -> list[str]:
     errors = []
     for rule, desc in rules.items():
         if not isinstance(desc, dict) or desc.get("status") not in RULE_STATUSES:
-            errors.append(f"rules.{rule}.status must be {' or '.join(RULE_STATUSES)}")
+            errors.append(f"rules.{rule}.status must be {', '.join(RULE_STATUSES)}")
+        elif desc["status"] == "implemented" and desc.get("kind") not in RULE_KINDS:
+            errors.append(f"rules.{rule}.kind must be {', '.join(RULE_KINDS)} for an implemented rule")
         elif desc["status"] == "not_implemented" and not desc.get("version"):
             errors.append(f"rules.{rule}: planned version missing for a rule not implemented")
+        elif desc["status"] == "removed" and not desc.get("reason"):
+            errors.append(f"rules.{rule}: reason missing for a removed rule")
     return errors
 
 

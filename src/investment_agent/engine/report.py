@@ -1,8 +1,9 @@
 """Markdown report of a screener run, and detail CSV.
 
-The engine knows no rule: the strategy describes the funnel steps, the score components,
-the descriptive columns and the warning categories in a `Presentation`. The report does no
-financial calculation: it counts and formats.
+The engine knows no rule: the strategy describes the funnel (groups of steps), the score
+components (with an optional marker for a fallback value), the descriptive columns and the
+warning categories in a `Presentation`. The report does no financial calculation: it counts
+and formats.
 """
 
 from __future__ import annotations
@@ -16,8 +17,7 @@ import pandas as pd
 
 from investment_agent.engine.finance import is_number
 from investment_agent.engine.statuses import (
-    ELIGIBLE_COLUMN, FIRST_FAILED_COLUMN, MATCH_COLUMN, MATCH_LABEL, MISSING, PASS, WARNINGS_COLUMN,
-    reason_column)
+    ELIGIBLE_COLUMN, FIRST_FAILED_COLUMN, MISSING, PASS, WARNINGS_COLUMN, reason_column)
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 MINUS = "\u2212"
@@ -27,20 +27,29 @@ FORMATS = ("signed_pct", "pct", "number")
 
 @dataclass
 class Component:
-    label: str          # ranking column header (e.g. "Perf 6M")
-    column: str         # raw value
-    pct_column: str     # percentile rank
-    format: str         # signed_pct, pct or number
+    label: str                       # ranking column header (e.g. "Perf 6M")
+    column: str                      # raw value
+    pct_column: str                  # percentile rank
+    format: str                      # signed_pct, pct or number
+    # Optional marker shown after the value when marker_column == marker_value (fallback value),
+    # explained by marker_note under the ranking; marker_count: sentence under the funnel with
+    # {n}, the number of stocks of the first funnel group that carry the marker.
+    marker_column: str | None = None
+    marker_value: str | None = None
+    marker: str | None = None
+    marker_note: str | None = None
+    marker_count: str | None = None
 
 
 @dataclass
 class Presentation:
     title: str                                   # e.g. "Higgons"
-    steps: list[tuple[str, str]]                 # (status column, label), funnel order
+    steps: list[tuple[str, str, str]]            # (status column, label, group), funnel order
     components: list[Component]
     description_columns: list[tuple[str, str]]   # (label, column): name, country, sector
     country_column: str
     warning_categories: list[str] = field(default_factory=list)
+    funnel_note: str = ""                        # sentence under the funnel
 
 
 @dataclass
@@ -50,20 +59,21 @@ class RunResult:
     ranking: pd.DataFrame          # eligible stocks, ranked (score, rank, pct columns)
     presentation: Presentation
     warnings: dict[str, list[str]] = field(default_factory=dict)   # engine categories
-    comparison: dict | None = None
     n_markets: int = 0
 
 
 def strategy_presentation(strategy, cfg: dict) -> Presentation:
-    """Presentation of a strategy (module): TradingView stage, Yahoo match, Yahoo stage."""
-    steps = [*strategy.TV_STEPS, (MATCH_COLUMN, MATCH_LABEL), *strategy.YAHOO_STEPS]
+    """Presentation of a strategy (module); FUNNEL = [(group label, [(column, label)])]."""
+    steps = [(column, label, group) for group, group_steps in strategy.FUNNEL
+             for column, label in group_steps]
     return Presentation(
         title=strategy.TITLE,
         steps=steps,
-        components=[Component(*c) for c in strategy.components(cfg)],
+        components=[Component(**c) for c in strategy.components(cfg)],
         description_columns=list(strategy.DESCRIPTION_COLUMNS),
         country_column=strategy.COUNTRY_COLUMN,
         warning_categories=list(strategy.WARNING_CATEGORIES),
+        funnel_note=getattr(strategy, "FUNNEL_NOTE", ""),
     )
 
 
@@ -118,36 +128,53 @@ def displayed_stock(row) -> str:
 # --- sections --------------------------------------------------------------------------
 
 
-def funnel(universe: pd.DataFrame, steps: list[tuple[str, str]]) -> list[tuple[str, int, int, int]]:
-    """(label, remaining, excluded, of which missing) for each step, in order."""
+def funnel(universe: pd.DataFrame, steps: list[tuple[str, str, str]]) -> list[tuple[str, str, int, int, int]]:
+    """(group, label, remaining, excluded, of which missing) for each step, in order."""
     remaining = pd.Series(True, index=universe.index)
     rows = []
-    for column, label in steps:
+    for column, label, group in steps:
         status = universe[column]
         passed = remaining & status.eq(PASS)
         excluded = remaining & ~passed
-        rows.append((label, int(passed.sum()), int(excluded.sum()), int((excluded & status.eq(MISSING)).sum())))
+        rows.append((group, label, int(passed.sum()), int(excluded.sum()),
+                     int((excluded & status.eq(MISSING)).sum())))
         remaining = passed
     return rows
 
 
-def excluded_for_missing_data(universe: pd.DataFrame, steps: list[tuple[str, str]]) -> list[list[str]]:
-    """Non-eligible stocks whose evaluated steps are all `pass` or `missing` (one row per stock)."""
-    columns = [c for c, _ in steps]
+def first_group_passed(universe: pd.DataFrame, steps: list[tuple[str, str, str]]) -> pd.Series:
+    """True for the stocks that pass every step of the first funnel group (the universe)."""
+    if not steps:
+        return pd.Series(True, index=universe.index)
+    first = steps[0][2]
+    columns = [c for c, _, g in steps if g == first]
+    return universe[columns].eq(PASS).all(axis=1)
+
+
+def excluded_for_missing_data(universe: pd.DataFrame, steps: list[tuple[str, str, str]]) -> list[list[str]]:
+    """Non-eligible stocks whose steps are all `pass` or `missing` (one row per stock)."""
+    columns = [c for c, *_ in steps]
     statuses = universe[columns]
-    evaluated = statuses.notna()
-    only_pass_or_missing = (statuses.isin([PASS, MISSING]) | ~evaluated).all(axis=1)
+    only_pass_or_missing = statuses.isin([PASS, MISSING]).all(axis=1)
     at_least_one_missing = statuses.eq(MISSING).any(axis=1)
     selection = universe[only_pass_or_missing & at_least_one_missing & ~universe[ELIGIBLE_COLUMN].eq(True)]
     rows = []
     for _, v in selection.sort_values("tv_ticker").iterrows():
         missing = [c for c in columns if v[c] == MISSING]
         reasons = list(dict.fromkeys(v.get(reason_column(c)) or "" for c in missing))
-        text = " ; ".join(r for r in reasons if r)
-        if any(pd.isna(v[c]) for c in columns):
-            text = f"{text} (later steps not evaluated)".strip()
-        rows.append([displayed_stock(v), ", ".join(missing), text])
+        rows.append([displayed_stock(v), ", ".join(missing), " ; ".join(r for r in reasons if r)])
     return rows
+
+
+def component_cell(v, c: Component) -> str:
+    """Raw value, marker if the value is a fallback, then the percentile rank."""
+    marked = c.marker and c.marker_column and v.get(c.marker_column) == c.marker_value
+    return f"{formatted_value(v[c.column], c.format)}{c.marker if marked else ''} ({number(v[c.pct_column], 0)})"
+
+
+def markers_shown(ranking: pd.DataFrame, components: list[Component]) -> list[Component]:
+    return [c for c in components if c.marker and c.marker_column in ranking
+            and ranking[c.marker_column].eq(c.marker_value).any()]
 
 
 def strategy_warnings(universe: pd.DataFrame) -> dict[str, list[str]]:
@@ -191,44 +218,10 @@ def rules_not_applied_section(cfg: dict) -> list[str]:
     for rule, desc in cfg.get("rules", {}).items():
         if desc.get("status") == "not_implemented":
             rows.append([rule, desc.get("version", ""), desc.get("reason", "—")])
-        elif desc.get("note"):
-            rows.append([rule, "implemented in V1, with a limitation", desc["note"]])
+        elif desc.get("status") == "implemented" and desc.get("note"):
+            rows.append([rule, "implemented, with a limitation", desc["note"]])
     return ["## Rules not applied or applied with a limitation", "",
             *table(["Rule", "Planned version", "Reason"], rows), ""]
-
-
-def comparison_section(comp: dict) -> list[str]:
-    output = ["## Comparison with the TradingView list", "",
-              f"File: `{comp['file']}`. Reproduced screen: {integer(comp['n_screen'])} stocks; "
-              f"exported list: {integer(comp['n_list'])} stocks; script: {integer(comp['n_script'])} "
-              f"eligible; common (exported list and script): {integer(comp['n_common'])}.", ""]
-    both = comp["both_lists"]
-    output += [f"### In both lists ({integer(len(both))})", ", ".join(both) if both else "None.", ""]
-
-    list_only = comp["list_only"]
-    output.append(f"### Only in the TradingView list ({integer(len(list_only))})")
-    output += table(["Stock (export)", "TradingView stock", "First failed rule", "Measured value"],
-                    [[e["export"], e["tv_ticker"] or "—", e["rule"] or "—", e["reason"]] for e in list_only]) \
-        if list_only else ["None."]
-    output.append("")
-
-    script_only = comp["script_only"]
-    output.append(f"### Only in the script ({integer(len(script_only))})")
-    output += table(["Stock", "TradingView screen criterion that would have excluded it"],
-                    [[e["tv_ticker"], e["criterion"]] for e in script_only]) if script_only else ["None."]
-    output.append("")
-
-    not_rep = comp["not_reproduced"]
-    output.append(f"### Exported list not reproduced by the recomputed screen ({integer(len(not_rep))})")
-    output += table(["Stock (export)", "TradingView stock", "Criterion at fault"],
-                    [[e["export"], e["tv_ticker"] or "—", e["criterion"]] for e in not_rep]) \
-        if not_rep else ["None."]
-    output.append("")
-
-    outside = comp["screen_not_in_list"]
-    output.append(f"### Kept by the recomputed screen, missing from the exported list ({integer(len(outside))})")
-    output += [", ".join(outside) if outside else "None.", ""]
-    return output
 
 
 def render_report(res: RunResult, cfg: dict, meta: dict) -> str:
@@ -239,8 +232,8 @@ def render_report(res: RunResult, cfg: dict, meta: dict) -> str:
         f"# {p.title} screener: {WEEKDAYS[d.weekday()]} {d:%Y-%m-%d}",
         f"Strategy {cfg['strategy_version']} · config {cfg['config_version']} · commit {meta.get('commit') or 'unknown'}"
         f" · run on {start:%Y-%m-%d} at {start:%H:%M} · duration {duration(meta.get('duration_s', 0))}",
-        "Sources: TradingView (delayed data), Yahoo Finance. "
-        f"Exchange rates: last Yahoo close available on {d:%Y-%m-%d}.",
+        "Sources: TradingView (delayed data). "
+        f"Exchange rates: last Yahoo Finance close available on {d:%Y-%m-%d}.",
         "",
     ]
     if meta.get("partial_markets"):
@@ -248,11 +241,20 @@ def render_report(res: RunResult, cfg: dict, meta: dict) -> str:
 
     output += ["## Summary", ""]
     rows = [[f"TradingView universe ({integer(res.n_markets)} markets)", integer(len(res.universe)), "—", "—"]]
-    for label, remaining, excluded, missing in funnel(res.universe, p.steps):
+    group = None
+    for step_group, label, remaining, excluded, missing in funnel(res.universe, p.steps):
+        if step_group and step_group != group:
+            rows.append([f"**{step_group}**", "", "", ""])
+        group = step_group
         rows.append([label, integer(remaining), integer(excluded), integer(missing)])
     rows.append(["**Eligible**", f"**{integer(len(res.ranking))}**", "", ""])
     output += table(["Step", "Remaining", "Excluded at this step", "of which missing data"], rows)
-    output += ["", "Each stock is counted at the first step it fails.", ""]
+    output += ["", f"Each stock is counted at the first step it fails, in this order. {p.funnel_note}".strip(), ""]
+    in_universe = first_group_passed(res.universe, p.steps)
+    for c in p.components:
+        if c.marker_count and c.marker_column in res.universe:
+            n = int((in_universe & res.universe[c.marker_column].eq(c.marker_value)).sum())
+            output += [c.marker_count.format(n=integer(n)), ""]
 
     output += ["## Ranking", ""]
     if len(res.ranking):
@@ -262,15 +264,17 @@ def render_report(res: RunResult, cfg: dict, meta: dict) -> str:
             rows.append([
                 integer(v["rank"]), displayed_stock(v), *[v.get(c) for _, c in p.description_columns],
                 number(v["score"]),
-                *[f"{formatted_value(v[c.column], c.format)} ({number(v[c.pct_column], 0)})" for c in p.components],
+                *[component_cell(v, c) for c in p.components],
             ])
         output += table(headers, rows)
         output += ["", "Raw value, then percentile rank among eligible stocks in parentheses.", ""]
+        for c in markers_shown(res.ranking, p.components):
+            output += [c.marker_note, ""]
     else:
         output += ["No eligible stock.", ""]
 
     output += ["## Excluded for missing or doubtful data", "",
-               "Stocks that pass every evaluated rule except one or more rules in `missing`.", ""]
+               "Stocks that pass every step except one or more steps in `missing`.", ""]
     rows = excluded_for_missing_data(res.universe, p.steps)
     output += [f"Stocks concerned: {integer(len(rows))}.", ""] if rows else []
     output += table(["Stock", "Rules in `missing`", "Missing or doubtful data"], rows) \
@@ -279,8 +283,6 @@ def render_report(res: RunResult, cfg: dict, meta: dict) -> str:
 
     output += warnings_section(res)
     output += rules_not_applied_section(cfg)
-    if res.comparison is not None:
-        output += comparison_section(res.comparison)
     return "\n".join(output).rstrip() + "\n"
 
 

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "investment_agent"
-version = "1.0.0"
-description = "Rule-based stock screener (TradingView + Yahoo Finance), the first building block of a planned LLM investment agent."
+version = "1.1.0"
+description = "Rule-based stock screener for PEA-eligible European small and mid caps (TradingView data), the first building block of a planned LLM investment agent."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

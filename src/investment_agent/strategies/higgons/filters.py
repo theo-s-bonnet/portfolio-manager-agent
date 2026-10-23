@@ -1,8 +1,8 @@
 """Rules of the Higgons strategy (universe and eligibility filters): one pure function per rule.
 
 Each function `rX_Y(df, cfg)` receives the universe (columns named after the internal names
-of `tradingview_fields`, plus the derived columns and the `yf_` columns of fundamentals.py)
-and returns two Series aligned on the index of `df`:
+of `tradingview_fields`, plus the derived columns of `add_derived_columns`) and returns two
+Series aligned on the index of `df`:
 - the status: `pass`, `fail` or `missing` (R4.11: missing data is never replaced);
 - the reason: measured value and threshold, or the missing data (empty or explanatory on `pass`).
 
@@ -21,7 +21,8 @@ import pandas as pd
 
 from investment_agent.engine.data.fx import to_eur
 from investment_agent.engine.finance import is_number, safe_ratio
-from investment_agent.engine.statuses import FAIL, MISSING, PASS, reason_column
+from investment_agent.engine.statuses import FAIL, MISSING, PASS, WARNINGS_COLUMN, reason_column
+from investment_agent.strategies.higgons.scoring import COMPONENT_COLUMNS, ROE_COLUMN
 
 Rule = Callable[[pd.DataFrame, dict], tuple[pd.Series, pd.Series]]
 
@@ -99,13 +100,63 @@ def _missing(*pairs: tuple[str, object]) -> str:
 # --- derived columns (deterministic calculations, no rule) -------------------------------
 
 
-def add_derived_columns(df: pd.DataFrame, rates: dict[str, float]) -> pd.DataFrame:
-    """Adds market_cap_eur (R3.2), liquidity_eur (R3.3) and net_debt_ebitda (R4.4).
+# Source of the retained P/E (column pe_source).
+PE_TV, PE_CALC, PE_FALLBACK = "tv", "calc", "fallback"
+
+
+def retained_pe(pe_ttm, eps_ttm, market_cap, net_income_ttm, tol: float):
+    """(pe_calc, pe_retained, pe_source) of one stock; pure function.
+
+    pe_calc = market cap / TTM net income (same currency: `reporting_currency`), not computed if
+    the net income is <= 0 or missing. The retained P/E is the higher of the TradingView P/E
+    and pe_calc (source `calc` if pe_calc exceeds the TradingView P/E beyond the tolerance,
+    otherwise `tv`); pe_calc alone if the TradingView P/E is missing (`fallback`). It is
+    undefined (None, None) if EPS, net income or the TradingView P/E is <= 0, or if pe_calc
+    cannot be computed: only the fallback from the TradingView P/E to pe_calc is allowed.
+    """
+    pe_tv, eps, ni = _number(pe_ttm), _number(eps_ttm), _number(net_income_ttm)
+    pe_calc = safe_ratio(market_cap, ni)
+    undefined = any(x is not None and _le(x, 0, tol) for x in (eps, ni, pe_tv))
+    if undefined or pe_calc is None:
+        return pe_calc, None, None
+    if pe_tv is None:
+        return pe_calc, pe_calc, PE_FALLBACK
+    if _gt(pe_calc, pe_tv, tol):
+        return pe_calc, pe_calc, PE_CALC
+    return pe_calc, pe_tv, PE_TV
+
+
+# Source of the retained ROE (column roe_source).
+ROE_TV, ROE_FALLBACK = "tv", "fallback"
+
+
+def retained_roe(roe_ttm, net_income_ttm, shareholders_equity):
+    """(roe_calc, roe_retained, roe_source) of one stock, in %; pure function.
+
+    roe_calc = TTM net income / shareholders' equity of the last quarter x 100, not computed if
+    the equity is <= 0 or missing (denominator rule). The TradingView ROE has priority, even
+    <= 0 (`tv`); roe_calc is used only when it is missing (`fallback`).
+    """
+    ratio = safe_ratio(net_income_ttm, shareholders_equity)
+    roe_calc = None if ratio is None else ratio * 100
+    roe = _number(roe_ttm)
+    if roe is not None:
+        return roe_calc, roe, ROE_TV
+    if roe_calc is not None:
+        return roe_calc, roe_calc, ROE_FALLBACK
+    return None, None, None
+
+
+def add_derived_columns(df: pd.DataFrame, rates: dict[str, float], tol: float) -> pd.DataFrame:
+    """Adds market_cap_eur (R3.2), liquidity_eur (R3.3), net_debt_ebitda (R4.4),
+    first_bar_date (R3.6), the retained P/E (R4.1: pe_calc, pe_retained, pe_source) and the
+    retained ROE (score: roe_calc, roe_retained, roe_source).
 
     The market cap is converted with the currency of the amounts (`reporting_currency`), the
     liquidity (average volume x last price) with the price currency (`currency`): in London
     prices are in GBX while amounts are in GBP.
     The net debt / EBITDA ratio is not computed (NaN) if EBITDA is <= 0 or missing.
+    first_bar_date: UTC day of `first_bar_time` (Unix time in seconds), NaT if missing.
     """
     df = df.copy()
     df["market_cap_eur"] = pd.Series(
@@ -121,6 +172,18 @@ def add_derived_columns(df: pd.DataFrame, rates: dict[str, float]) -> pd.DataFra
     df["net_debt_ebitda"] = pd.Series(
         [safe_ratio(nd, e) for nd, e in zip(df["net_debt"], df["ebitda_ttm"])],
         index=df.index, dtype="float64")
+    seconds = pd.to_numeric(df["first_bar_time"], errors="coerce")
+    df["first_bar_date"] = pd.to_datetime(seconds, unit="s").dt.normalize()
+    pe = [retained_pe(*row, tol) for row in
+          zip(df["pe_ttm"], df["eps_ttm"], df["market_cap"], df["net_income_ttm"])]
+    df["pe_calc"] = pd.Series([calc for calc, _, _ in pe], index=df.index, dtype="float64")
+    df["pe_retained"] = pd.Series([pe_ for _, pe_, _ in pe], index=df.index, dtype="float64")
+    df["pe_source"] = pd.Series([source for _, _, source in pe], index=df.index, dtype=object)
+    roe = [retained_roe(*row) for row in
+           zip(df["roe_ttm"], df["net_income_ttm"], df["shareholders_equity"])]
+    df["roe_calc"] = pd.Series([calc for calc, _, _ in roe], index=df.index, dtype="float64")
+    df["roe_retained"] = pd.Series([roe_ for _, roe_, _ in roe], index=df.index, dtype="float64")
+    df["roe_source"] = pd.Series([source for _, _, source in roe], index=df.index, dtype=object)
     return df
 
 
@@ -137,22 +200,26 @@ def _conversion_reason(v: dict, amount: str, currency: str, label: str) -> str:
 
 
 def r3_1(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Market (country) in the universe, exchange other than OTC, primary listing."""
+    """PEA universe: market (listing country) in the universe, exchange other than OTC, primary
+    listing, headquarters country (TradingView `country`) in the EU/EEA list."""
     u = cfg["universe"]
     markets, excluded = set(u["markets"]), set(u["excluded_exchanges"])
+    countries = set(u["hq_countries"])
 
     def rule(v):
         market, exchange = _text(v.get("market")), _text(v.get("exchange"))
-        primary = _boolean(v.get("primary"))
+        primary, country = _boolean(v.get("primary")), _text(v.get("country"))
         if market is not None and market not in markets:
             return FAIL, f"market {market} outside the universe"
         if exchange is not None and exchange in excluded:
             return FAIL, f"exchange {exchange} excluded"
         if primary is False:
             return FAIL, "secondary listing"
-        if market is None or exchange is None or primary is None:
+        if country is not None and country not in countries:
+            return FAIL, f"headquarters country {country} outside the EU/EEA"
+        if market is None or exchange is None or primary is None or country is None:
             return MISSING, _missing(("market", market), ("exchange", exchange),
-                                     ("primary listing", primary))
+                                     ("primary listing", primary), ("headquarters country", country))
         return PASS, ""
 
     return _apply(df, rule)
@@ -193,9 +260,14 @@ def r3_3(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
 
 
 def r3_4(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Stocks only: allowed type, subtype not excluded, industry other than funds."""
+    """Stocks only: allowed type, subtype not excluded, industry other than funds.
+
+    A subtype listed in `typespec_exempt_markets` is allowed on those markets (German
+    preference shares).
+    """
     u = cfg["universe"]
     types, excluded = set(u["allowed_types"]), set(u["excluded_typespecs"])
+    exempt = {spec: set(markets or []) for spec, markets in (u["typespec_exempt_markets"] or {}).items()}
     funds = set(u["excluded_fund_industries"])
 
     def rule(v):
@@ -208,9 +280,10 @@ def r3_4(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
             specs = _list(v.get("subtype"))
             if specs is None:
                 return MISSING, "subtype missing"
-            forbidden = sorted(set(specs) & excluded)
+            market = _text(v.get("market"))
+            forbidden = sorted(s for s in set(specs) & excluded if market not in exempt.get(s, set()))
             if forbidden:
-                return FAIL, f"subtype {', '.join(forbidden)}"
+                return FAIL, f"subtype {', '.join(forbidden)} (market {market})"
         industry = _text(v.get("industry"))
         if industry is None:
             return MISSING, "industry missing"
@@ -237,29 +310,24 @@ def r3_5(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
 
 
 def r3_6(df: pd.DataFrame, cfg: dict, run_date: dt.date) -> tuple[pd.Series, pd.Series]:
-    """At least price_history_months of prices and balance_sheet_history_years balance sheets,
-    including Y and Y-2.
+    """Data guard: at least price_history_months of prices, checked on the date of the symbol's
+    first TradingView bar (first_bar_date).
 
-    The first valid price must be no later than (date - price_history_months months
-    + history_start_tolerance_days). Missing data -> `fail`.
+    `pass` if first_bar_date <= run date - price_history_months months
+    + history_start_tolerance_days. A ticker change resets the first bar: the 6-month performance
+    and the EMA are then computed on the short history, so the stock is excluded as well.
     """
     u, t = cfg["universe"], cfg["technical"]
     limit = (pd.Timestamp(run_date) - pd.DateOffset(months=u["price_history_months"])
              + pd.Timedelta(days=t["history_start_tolerance_days"]))
-    n_min = u["balance_sheet_history_years"]
 
     def rule(v):
-        first = _date(v.get("yf_first_price_date"))
+        first = _date(v.get("first_bar_date"))
         if first is None:
-            return FAIL, "empty Yahoo price history"
+            return MISSING, "first TradingView bar missing"
         if first > limit:
             return FAIL, (f"first price on {first:%Y-%m-%d}, less than "
                           f"{u['price_history_months']} months of history")
-        n = _number(v.get("yf_balance_sheet_count"))
-        if n is None or n < n_min:
-            return FAIL, f"{_v(n or 0)} annual balance sheets at Yahoo (minimum {n_min})"
-        if _date(v.get("yf_date_y2")) is None:
-            return FAIL, "Y-2 balance sheet not found at the expected date"
         return PASS, ""
 
     return _apply(df, rule)
@@ -269,7 +337,7 @@ def r3_6(df: pd.DataFrame, cfg: dict, run_date: dt.date) -> tuple[pd.Series, pd.
 
 
 def _simple_threshold(column: str, label: str, operator: str, threshold_key: str, unit: str = ""):
-    """Rule "value operator threshold" on a single column (R4.2, R4.3, R4.6)."""
+    """Rule "value operator threshold" on a single column (R4.3, R4.6)."""
     compare = {">=": _ge, ">": _gt}[operator]
     fail_symbol = {">=": "<", ">": "≤"}[operator]
 
@@ -290,24 +358,41 @@ def _simple_threshold(column: str, label: str, operator: str, threshold_key: str
 
 
 def r4_1(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """0 < P/E TTM <= pe_ttm_max."""
-    threshold, tol = cfg["filters"]["pe_ttm_max"], _tol(cfg)
+    """0 < retained P/E <= pe_max (columns of retained_pe).
+
+    EPS, TTM net income or TradingView P/E <= 0: P/E undefined, `fail`. TradingView P/E and
+    pe_calc both missing, or pe_calc missing alone: `missing`. A missing EPS does not block the
+    rule (R4.12 is then `missing`).
+    """
+    threshold, tol = cfg["filters"]["pe_max"], _tol(cfg)
 
     def rule(v):
-        pe = _number(v.get("pe_ttm"))
+        eps, ni, pe_tv = _number(v.get("eps_ttm")), _number(v.get("net_income_ttm")), _number(v.get("pe_ttm"))
+        pe_calc, pe = _number(v.get("pe_calc")), _number(v.get("pe_retained"))
+        source = _text(v.get("pe_source"))
+        if eps is not None and _le(eps, 0, tol):
+            return FAIL, f"EPS {_v(eps)} ≤ 0: P/E undefined"
+        if ni is not None and _le(ni, 0, tol):
+            return FAIL, f"TTM net income {_v(ni)} ≤ 0: P/E undefined"
+        if pe_tv is not None and _le(pe_tv, 0, tol):
+            return FAIL, f"TradingView P/E {_v(pe_tv)} ≤ 0"
         if pe is None:
-            return MISSING, "P/E missing"
+            if pe_tv is None:
+                return MISSING, "TradingView P/E and market cap / TTM net income missing"
+            return MISSING, "market cap / TTM net income missing: the retained P/E needs both"
         if _le(pe, 0, tol):
-            return FAIL, f"P/E {_v(pe)} ≤ 0"
-        if _le(pe, threshold, tol):
-            return PASS, ""
-        return FAIL, f"P/E {_v(pe)} > {_v(threshold)}"
+            return FAIL, f"retained P/E {_v(pe)} ≤ 0 ({source})"
+        if not _le(pe, threshold, tol):
+            return FAIL, f"retained P/E {_v(pe)} > {_v(threshold)} ({source})"
+        if source == PE_FALLBACK:
+            return PASS, f"fallback: TradingView P/E missing, market cap / TTM net income = {_v(pe)}"
+        if source == PE_CALC:
+            return PASS, f"market cap / TTM net income {_v(pe_calc)} > TradingView P/E {_v(pe_tv)}"
+        return PASS, ""
 
     return _apply(df, rule)
 
 
-r4_2 = _simple_threshold("roe_ttm", "ROE", ">=", "roe_ttm_min_pct", "%")
-r4_2.__doc__ = "ROE TTM >= roe_ttm_min_pct (in %)."
 r4_3 = _simple_threshold("revenue_cagr_5y", "5-year revenue CAGR", ">=", "revenue_cagr_5y_min_pct", "%")
 r4_3.__doc__ = "5-year revenue CAGR >= revenue_cagr_5y_min_pct (annual rate, in %)."
 r4_6 = _simple_threshold("perf_6m", "6-month performance", ">=", "perf_6m_min_pct", "%")
@@ -354,23 +439,38 @@ def r4_5(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
     return _apply(df, rule)
 
 
-def r4_8(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Trailing twelve-month net income > 0."""
-    tol = _tol(cfg)
+def _roe_missing_reason(v: dict) -> str:
+    equity = _number(v.get("shareholders_equity"))
+    if equity is not None and equity <= 0:
+        return f"ROE missing; fallback not computed: shareholders' equity {_v(equity)} ≤ 0"
+    return "ROE missing; fallback not computed: shareholders' equity / TTM net income missing"
+
+
+def r4_11(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
+    """Data guard: every measure of the score is a number (R4.11 applied to the score).
+
+    In practice the retained ROE is the only measure that no criterion checks: when it is
+    missing, the reason explains why the fallback was not computed (the other measures are
+    already reported by their criterion). A ROE <= 0 is a value (ranked as is).
+    """
+    columns = [COMPONENT_COLUMNS[c] for c in cfg["score"]["weights"] if c in COMPONENT_COLUMNS]
 
     def rule(v):
-        ni = _number(v.get("net_income_ttm"))
-        if ni is None:
-            return MISSING, "TTM net income missing"
-        if _gt(ni, 0, tol):
-            return PASS, ""
-        return FAIL, f"TTM net income {_v(ni)} ≤ 0"
+        missing = [c for c in columns if _number(v.get(c)) is None]
+        if ROE_COLUMN in missing:
+            return MISSING, _roe_missing_reason(v)
+        if missing:
+            return MISSING, f"score data missing: {', '.join(missing)}"
+        if v.get("roe_source") == ROE_FALLBACK:
+            return PASS, (f"fallback: TradingView ROE missing, TTM net income / shareholders' equity "
+                          f"= {_v(v[ROE_COLUMN])}%")
+        return PASS, ""
 
     return _apply(df, rule)
 
 
-def r4_12_tv(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """TradingView denominators: EBITDA TTM > 0 and EPS TTM > 0."""
+def r4_12(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
+    """Data guard on the denominators: EBITDA TTM > 0 and EPS TTM > 0."""
     tol = _tol(cfg)
 
     def rule(v):
@@ -386,172 +486,82 @@ def r4_12_tv(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
     return _apply(df, rule)
 
 
-# --- eligibility filters computed on Yahoo data (yf_ columns of fundamentals.py) ----------
+# --- warnings (no effect on eligibility) ---------------------------------------------------
+
+CATEGORY_PE_FALLBACK = "Retained P/E: fallback to market cap / TTM net income (TradingView P/E missing)"
+CATEGORY_ISIN = "Statutory country (ISIN prefix) outside the EU/EEA: check PEA eligibility"
+CATEGORY_ROE_FALLBACK = ("Retained ROE: fallback to TTM net income / shareholders' equity "
+                         "(TradingView ROE missing)")
+CATEGORY_ROE_NEGATIVE = "ROE ≤ 0, ranked last on quality"
 
 
-def r4_7(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Net cash in Y and Y-2, or a decrease of net debt / equity of at least N points.
+def warnings_column(df: pd.DataFrame, cfg: dict) -> pd.Series:
+    """List of (category, text) per stock.
 
-    Net debt = Total Debt - cash and cash equivalents (short-term investments excluded).
-    The ratio is computed only if equity is > 0 in Y and Y-2; otherwise `fail` (R4.12).
-    Low but positive equity: the ratio is computed as is, even if it becomes very large.
+    For the stocks that pass the universe rules: retained P/E or retained ROE from the fallback;
+    ISIN prefix outside the EU/EEA (the TradingView `country` is the declared, often operational,
+    headquarters; the ISIN prefix usually gives the country of incorporation). For the stocks
+    that also pass the selection criteria: ROE <= 0, ranked last on quality.
     """
-    threshold, tol = cfg["filters"]["debt_to_equity_decrease_min_points"], _tol(cfg)
-
-    def rule(v):
-        nd_y, nd_y2 = _number(v.get("yf_net_debt_y")), _number(v.get("yf_net_debt_y2"))
-        if nd_y is None or nd_y2 is None:
-            return MISSING, _missing(
-                ("total debt Y", _number(v.get("yf_debt_y"))),
-                ("cash Y", _number(v.get("yf_cash_y"))),
-                ("total debt Y-2", _number(v.get("yf_debt_y2"))),
-                ("cash Y-2", _number(v.get("yf_cash_y2"))))
-        if _lt(nd_y, 0, tol) and _lt(nd_y2, 0, tol):
-            return PASS, "net cash in Y and Y-2"
-        eq_y, eq_y2 = _number(v.get("yf_equity_y")), _number(v.get("yf_equity_y2"))
-        if (eq_y is not None and _le(eq_y, 0, tol)) or (eq_y2 is not None and _le(eq_y2, 0, tol)):
-            return FAIL, "equity ≤ 0: ratio not computed (R4.12)"
-        if eq_y is None or eq_y2 is None:
-            return MISSING, _missing(("equity Y", eq_y), ("equity Y-2", eq_y2))
-        ratio_y, ratio_y2 = nd_y / eq_y * 100, nd_y2 / eq_y2 * 100
-        change = ratio_y - ratio_y2
-        if _le(change, -threshold, tol):
-            return PASS, f"net debt/equity {_v(ratio_y2)}% → {_v(ratio_y)}%"
-        sign = "+" if change > 0 else ""
-        return FAIL, (f"net debt/equity {_v(ratio_y2)}% → {_v(ratio_y)}% "
-                      f"({sign}{_v(change)} points, minimum decrease {_v(threshold)})")
-
-    return _apply(df, rule)
-
-
-def r4_9(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Book value per share (split-adjusted diluted shares) strictly up from Y-2 to Y."""
+    prefixes = tuple(str(p).upper() for p in cfg["technical"]["eu_eea_isin_prefixes"])
     tol = _tol(cfg)
-
-    def rule(v):
-        eq_y, eq_y2 = _number(v.get("yf_equity_y")), _number(v.get("yf_equity_y2"))
-        if (eq_y is not None and _le(eq_y, 0, tol)) or (eq_y2 is not None and _le(eq_y2, 0, tol)):
-            return FAIL, "equity ≤ 0"
-        n_y, n_y2 = _number(v.get("yf_diluted_shares_y")), _number(v.get("yf_diluted_shares_y2"))
-        if eq_y is None or eq_y2 is None or n_y is None or n_y2 is None:
-            return MISSING, _missing(("equity Y", eq_y), ("equity Y-2", eq_y2),
-                                     ("diluted shares Y", n_y), ("diluted shares Y-2", n_y2))
-        bvps_y, bvps_y2 = safe_ratio(eq_y, n_y), safe_ratio(eq_y2, n_y2)
-        if bvps_y is None or bvps_y2 is None:
-            return MISSING, "share count ≤ 0"
-        if _gt(bvps_y, bvps_y2, tol):
-            return PASS, ""
-        return FAIL, f"book value per share {_v(bvps_y2)} → {_v(bvps_y)} (strict increase required)"
-
-    return _apply(df, rule)
-
-
-def r4_10a(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """(N_Y / N_Y-2)^(1/dilution_years) - 1 <= dilution_annual_max_pct (diluted, split-adjusted)."""
-    f, tol = cfg["filters"], _tol(cfg)
-    threshold, years = f["dilution_annual_max_pct"], f["dilution_years"]
-
-    def rule(v):
-        n_y, n_y2 = _number(v.get("yf_diluted_shares_y")), _number(v.get("yf_diluted_shares_y2"))
-        if n_y is None or n_y2 is None:
-            return MISSING, _missing(("diluted shares Y", n_y), ("diluted shares Y-2", n_y2))
-        q = safe_ratio(n_y, n_y2)
-        if q is None or q <= 0:
-            return MISSING, "share count ≤ 0"
-        rate = (q ** (1 / years) - 1) * 100
-        if _le(rate, threshold, tol):
-            return PASS, ""
-        return FAIL, f"dilution {_v(rate)}%/yr > {_v(threshold)}%"
-
-    return _apply(df, rule)
-
-
-def r4_10b(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Current shares / shares at the close of Y (split-adjusted) - 1 <= dilution_recent_max_pct.
-
-    Ratio outside [suspect_share_ratio_min, suspect_share_ratio_max]: `missing` (multiple share
-    classes likely), reported in the warnings.
-    """
-    t, tol = cfg["technical"], _tol(cfg)
-    threshold = cfg["filters"]["dilution_recent_max_pct"]
-
-    def rule(v):
-        current, at_close = _number(v.get("yf_shares_current")), _number(v.get("yf_shares_y"))
-        if current is None or at_close is None:
-            return MISSING, _missing(("current shares", current), ("shares at the close of Y", at_close))
-        ratio = safe_ratio(current, at_close)
-        if ratio is None:
-            return MISSING, "share count at the close ≤ 0"
-        if not t["suspect_share_ratio_min"] <= ratio <= t["suspect_share_ratio_max"]:
-            return MISSING, f"suspect share ratio ({_v(ratio)}): multiple share classes?"
-        change = (ratio - 1) * 100
-        if _le(change, threshold, tol):
-            return PASS, ""
-        return FAIL, f"shares +{_v(change)}% since the close of Y > {_v(threshold)}%"
-
-    return _apply(df, rule)
-
-
-def r4_12_yf(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Equity > 0 in Y and in Y-2."""
-    tol = _tol(cfg)
-
-    def rule(v):
-        eq_y, eq_y2 = _number(v.get("yf_equity_y")), _number(v.get("yf_equity_y2"))
-        negatives = [f"equity {name} {_v(x)} ≤ 0" for name, x in (("Y", eq_y), ("Y-2", eq_y2))
-                     if x is not None and _le(x, 0, tol)]
-        if negatives:
-            return FAIL, " ; ".join(negatives)
-        if eq_y is None or eq_y2 is None:
-            return MISSING, _missing(("equity Y", eq_y), ("equity Y-2", eq_y2))
-        return PASS, ""
-
-    return _apply(df, rule)
+    in_universe = df[list(UNIVERSE_RULES)].eq(PASS).all(axis=1)
+    selected = in_universe & df[list(CRITERIA)].eq(PASS).all(axis=1)
+    result = []
+    for ok, sel, v in zip(in_universe, selected, df.to_dict("records")):
+        items: list[tuple[str, str]] = []
+        if ok and v.get("pe_source") == PE_FALLBACK:
+            items.append((CATEGORY_PE_FALLBACK, f"retained P/E {_v(v['pe_retained'])}"))
+        isin = _text(v.get("isin"))
+        if ok and isin is not None and not isin.upper().startswith(prefixes):
+            items.append((CATEGORY_ISIN, f"ISIN {isin}, headquarters {_text(v.get('country'))}"))
+        if ok and v.get("roe_source") == ROE_FALLBACK:
+            items.append((CATEGORY_ROE_FALLBACK, f"retained ROE {_v(v[ROE_COLUMN])}%"))
+        roe = _number(v.get(ROE_COLUMN))
+        if sel and roe is not None and _le(roe, 0, tol):
+            items.append((CATEGORY_ROE_NEGATIVE, f"ROE {_v(roe)}%"))
+        result.append(items)
+    return pd.Series(result, index=df.index, dtype=object)
 
 
 # --- sequence ----------------------------------------------------------------------------
+# Evaluation order: universe, selection criteria, data guards. Every rule is evaluated for
+# every stock; the report counts a stock at the first rule it fails.
 
-TV_RULES: dict[str, Rule] = {
+UNIVERSE_RULES: dict[str, Rule] = {
     "R3.1": r3_1,
     "R3.2": r3_2,
     "R3.3": r3_3,
     "R3.4": r3_4,
     "R3.5": r3_5,
+}
+CRITERIA: dict[str, Rule] = {
     "R4.1": r4_1,
-    "R4.2": r4_2,
     "R4.3": r4_3,
     "R4.4": r4_4,
     "R4.5": r4_5,
     "R4.6": r4_6,
-    "R4.8": r4_8,
-    "R4.12_tv": r4_12_tv,
 }
-
-
-def filter_tv(df: pd.DataFrame, cfg: dict, rates: dict[str, float]) -> pd.DataFrame:
-    """Derived columns, then one status column and one reason column per TradingView rule."""
-    df = add_derived_columns(df, rates)
-    for rule, function in TV_RULES.items():
-        df[rule], df[reason_column(rule)] = function(df, cfg)
-    return df
-
-
-YAHOO_RULES: dict[str, Rule] = {
-    "R4.7": r4_7,
-    "R4.9": r4_9,
-    "R4.10a": r4_10a,
-    "R4.10b": r4_10b,
-    "R4.12_yf": r4_12_yf,
+# Data guards: R3.6 (needs the run date, applied first), then these ones.
+DATA_GUARDS: dict[str, Rule] = {
+    "R4.11": r4_11,
+    "R4.12": r4_12,
 }
+RULE_COLUMNS = [*UNIVERSE_RULES, *CRITERIA, "R3.6", *DATA_GUARDS]
 
 
-def filter_yahoo(df: pd.DataFrame, cfg: dict, run_date: dt.date) -> pd.DataFrame:
-    """Statuses of the Yahoo-stage rules (R3.6 first), from the `yf_` columns.
+def filter_tv(df: pd.DataFrame, cfg: dict, rates: dict[str, float], run_date: dt.date) -> pd.DataFrame:
+    """Derived columns, then one status column and one reason column per rule, and the
+    `warnings` column.
 
-    To be called only on the stocks whose Yahoo data has been extracted.
+    Every rule is evaluated for every stock. `rates`: exchange rates to the euro (R3.2, R3.3);
+    `run_date`: date of the run (R3.6), so that the result is deterministic.
     """
-    df = df.copy()
-    df["R3.6"], df[reason_column("R3.6")] = r3_6(df, cfg, run_date)
-    for rule, function in YAHOO_RULES.items():
+    df = add_derived_columns(df, rates, _tol(cfg))
+    for rule, function in {**UNIVERSE_RULES, **CRITERIA}.items():
         df[rule], df[reason_column(rule)] = function(df, cfg)
+    df["R3.6"], df[reason_column("R3.6")] = r3_6(df, cfg, run_date)
+    for rule, function in DATA_GUARDS.items():
+        df[rule], df[reason_column(rule)] = function(df, cfg)
+    df[WARNINGS_COLUMN] = warnings_column(df, cfg)
     return df
