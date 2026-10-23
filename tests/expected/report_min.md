@@ -1,6 +1,6 @@
 # Higgons screener: Saturday 2026-10-24
-Strategy 1.1 · config 1.0.0 · commit a1b2c3d · run on 2026-10-24 at 08:14 · duration 6 min 12 s
-Sources: TradingView (delayed data), Yahoo Finance. Exchange rates: last Yahoo close available on 2026-10-24.
+Strategy 2.0 · config 2.0.0 · commit a1b2c3d · run on 2026-10-24 at 08:14 · duration 6 min 12 s
+Sources: TradingView (delayed data). Exchange rates: last Yahoo Finance close available on 2026-10-24.
 
 ## Summary
 
@@ -20,13 +20,8 @@ Sources: TradingView (delayed data), Yahoo Finance. Exchange rates: last Yahoo c
 | R4.6 6-month performance | 2 | 0 | 0 |
 | R4.8 TTM net income | 2 | 0 | 0 |
 | R4.12 EBITDA and EPS denominators | 2 | 0 | 0 |
-| Yahoo match (currency and price) | 2 | 0 | 0 |
-| R3.6 history (prices and balance sheets) | 2 | 0 | 0 |
-| R4.7 balance sheet (net debt) | 2 | 0 | 0 |
-| R4.9 book value per share | 2 | 0 | 0 |
-| R4.10a structural dilution | 2 | 0 | 0 |
-| R4.10b recent dilution | 2 | 0 | 0 |
-| R4.12 equity in Y and Y-2 | 2 | 0 | 0 |
+| R3.6 price history (first TradingView bar) | 2 | 0 | 0 |
+| Yahoo ticker available | 2 | 0 | 0 |
 | **Eligible** | **2** |  |  |
 
 Each stock is counted at the first step it fails.
@@ -48,23 +43,11 @@ Stocks concerned: 1.
 
 | Stock | Rules in `missing` | Missing or doubtful data |
 |---|---|---|
-| XETR:CCC (CCC.DE) | R4.2 | ROE missing (later steps not evaluated) |
+| XETR:CCC (CCC.DE) | R4.2 | ROE missing |
 
 ## Warnings
 
 ### TradingView markets with errors or truncated (0)
-None.
-
-### Failed Yahoo matches (0)
-None.
-
-### Splits detected (ratio, series adjusted by the script or not) (1)
-- NYSE:AAA: split detected (ratio 2, adjusted: yes), between Y-2 and Y
-
-### Suspect share ratios (multiple share classes likely) (0)
-None.
-
-### Total Debt missing at Yahoo (0)
 None.
 
 ### Eligible by country (2)

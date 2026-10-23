@@ -173,7 +173,6 @@ pip install -e ".[dev]"
 ```bash
 python -m investment_agent run                            # full run (about 10 minutes)
 python -m investment_agent run --markets america,uk       # partial run, for a quick test
-python -m investment_agent run --no-cache                 # ignore today's Yahoo cache
 python -m investment_agent run --output some/folder       # write the report elsewhere
 ```
 
@@ -183,13 +182,12 @@ Outputs go to `data/` (not tracked by Git):
   warnings, rules not applied;
 - `data/reports/latest_run_detail.csv`: one row per stock of the universe with the raw data
   and the status and reason of every rule; standard CSV (comma, decimal point, UTF-8),
-  overwritten on every run;
-- `data/cache/yahoo/YYYY-MM-DD/`: today's Yahoo cache, so a second run on the same day is fast.
+  overwritten on every run.
 
 ## Tests
 
 ```bash
-pytest               # unit tests, no network (160 tests)
+pytest               # unit tests, no network (134 tests)
 pytest -m network    # one real call per source (TradingView, Yahoo)
 python scripts/check_tv_fields.py   # checks the TradingView field names against Yahoo (network)
 ```

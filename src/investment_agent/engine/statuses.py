@@ -2,9 +2,8 @@
 
 Every rule produces, for every stock, a status `pass`, `fail` or `missing`, in a column named
 after the rule (e.g. "R4.1"), and a text reason in the column `reason_<rule>` (measured value
-and threshold, or the missing data; empty or explanatory on `pass`). A rule that was not
-evaluated (stock dropped before the Yahoo stage) has an empty status (NaN). A stock is
-eligible if and only if all its rules are `pass`.
+and threshold, or the missing data; empty or explanatory on `pass`). Every rule is evaluated
+for every stock. A stock is eligible if and only if all its rules are `pass`.
 """
 
 from __future__ import annotations
@@ -22,9 +21,9 @@ REASON_PREFIX = "reason_"
 ELIGIBLE_COLUMN = "eligible"
 FIRST_FAILED_COLUMN = "first_failed_rule"
 WARNINGS_COLUMN = "warnings"   # list of (category, text) per stock
-# Engine step between the two stages: does the Yahoo ticker point to the same listing?
-MATCH_COLUMN = "yahoo_match"
-MATCH_LABEL = "Yahoo match (currency and price)"
+# Engine data guard: a verified Yahoo ticker exists for the stock's exchange (no download).
+MAPPING_COLUMN = "yahoo_mapping"
+MAPPING_LABEL = "Yahoo ticker available"
 
 
 def reason_column(rule: str) -> str:

@@ -16,7 +16,7 @@ import pandas as pd
 
 from investment_agent.engine.finance import is_number
 from investment_agent.engine.statuses import (
-    ELIGIBLE_COLUMN, FIRST_FAILED_COLUMN, MATCH_COLUMN, MATCH_LABEL, MISSING, PASS, WARNINGS_COLUMN,
+    ELIGIBLE_COLUMN, FIRST_FAILED_COLUMN, MAPPING_COLUMN, MAPPING_LABEL, MISSING, PASS, WARNINGS_COLUMN,
     reason_column)
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -54,8 +54,8 @@ class RunResult:
 
 
 def strategy_presentation(strategy, cfg: dict) -> Presentation:
-    """Presentation of a strategy (module): TradingView stage, Yahoo match, Yahoo stage."""
-    steps = [*strategy.TV_STEPS, (MATCH_COLUMN, MATCH_LABEL), *strategy.YAHOO_STEPS]
+    """Presentation of a strategy (module): rules, data guards, then the engine guard."""
+    steps = [*strategy.TV_STEPS, *strategy.GUARD_STEPS, (MAPPING_COLUMN, MAPPING_LABEL)]
     return Presentation(
         title=strategy.TITLE,
         steps=steps,
@@ -204,8 +204,8 @@ def render_report(res: RunResult, cfg: dict, meta: dict) -> str:
         f"# {p.title} screener: {WEEKDAYS[d.weekday()]} {d:%Y-%m-%d}",
         f"Strategy {cfg['strategy_version']} · config {cfg['config_version']} · commit {meta.get('commit') or 'unknown'}"
         f" · run on {start:%Y-%m-%d} at {start:%H:%M} · duration {duration(meta.get('duration_s', 0))}",
-        "Sources: TradingView (delayed data), Yahoo Finance. "
-        f"Exchange rates: last Yahoo close available on {d:%Y-%m-%d}.",
+        "Sources: TradingView (delayed data). "
+        f"Exchange rates: last Yahoo Finance close available on {d:%Y-%m-%d}.",
         "",
     ]
     if meta.get("partial_markets"):

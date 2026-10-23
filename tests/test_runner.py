@@ -3,36 +3,32 @@
 import pandas as pd
 import pytest
 
-from helpers import DATE, RATES, config, tv_stock, yahoo_data
+from helpers import DATE, RATES, config, tv_stock
 from investment_agent.__main__ import parse_args
-from investment_agent.engine.runner import CAT_MARKETS, CAT_MATCH, CAT_NO_MAPPING, Options, run
+from investment_agent.engine.runner import CAT_MARKETS, CAT_NO_MAPPING, Options, run
 
 FIELDS = config()["tradingview_fields"]
 
 
-@pytest.fixture(autouse=True)
-def no_pause(monkeypatch):
-    monkeypatch.setattr("investment_agent.engine.data.yahoo.time.sleep", lambda s: None)
+def european(tv_ticker, market, exchange, country, currency="EUR", **changes):
+    return tv_stock(tv_ticker=tv_ticker, market=market, exchange=exchange, country=country,
+                    currency=currency, reporting_currency=currency, price=100.0, ema=90.0, **changes)
+
 
 STOCKS = {
-    "america": [
-        tv_stock(tv_ticker="NYSE:AAA", price=100.0, ema=90.0, perf_6m=30.0),
-        tv_stock(tv_ticker="NASDAQ:DDD", exchange="NASDAQ", price=100.0, ema=90.0),
-        tv_stock(tv_ticker="OTC:EEE", exchange="OTC", price=100.0, ema=90.0),
+    "germany": [
+        european("XETR:AAA", "germany", "XETR", "Germany", perf_6m=30.0),
+        european("OTC:EEE", "germany", "OTC", "Germany"),
     ],
     "norway": [
-        tv_stock(tv_ticker="OSL:BBB", market="norway", exchange="OSL", country="Norway", currency="NOK",
-                 reporting_currency="NOK", market_cap=5e9, price=100.0, ema=90.0, perf_6m=10.0),
+        european("OSL:BBB", "norway", "OSL", "Norway", currency="NOK", market_cap=5e9, perf_6m=10.0),
     ],
     "sweden": [
-        tv_stock(tv_ticker="NGM:FFF", market="sweden", exchange="NGM", country="Sweden", currency="SEK",
-                 reporting_currency="SEK", market_cap=5e9, price=100.0, ema=90.0),
+        european("NGM:FFF", "sweden", "NGM", "Sweden", currency="SEK", market_cap=5e9),
     ],
-}
-YAHOO = {
-    "AAA": yahoo_data(ticker="AAA"),
-    "DDD": yahoo_data(ticker="DDD", currency="CAD"),
-    "BBB.OL": yahoo_data(ticker="BBB.OL", currency="NOK"),
+    "croatia": [
+        european("ZSE:TEST", "croatia", "ZSE", "Croatia"),     # passes every rule, no Yahoo ticker
+    ],
 }
 
 
@@ -62,18 +58,18 @@ def fake_rates(symbols):
     return {s: rates[s.removesuffix("EUR=X")] for s in symbols if s.removesuffix("EUR=X") in rates}
 
 
-class FakeYahooSource:
-    def __init__(self):
-        self.calls = []
-
-    def __call__(self, ticker, start_date):
-        self.calls.append(ticker)
-        return YAHOO[ticker]
+@pytest.fixture(autouse=True)
+def no_yahoo_download(monkeypatch):
+    """Only exchange rates may come from Yahoo: any download of a stock fails the test."""
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Yahoo download of a stock")
+    monkeypatch.setattr("investment_agent.engine.data.yahoo.download", forbidden)
+    monkeypatch.setattr("investment_agent.engine.data.yahoo._download_yfinance", forbidden)
 
 
 def options(tmp_path, **changes):
-    base = dict(date=DATE, root=tmp_path, markets=["america", "norway", "sweden", "atlantis"],
-                source_tv=FakeQuery, source_fx=fake_rates, source_yahoo=FakeYahooSource())
+    base = dict(date=DATE, root=tmp_path, markets=["germany", "norway", "sweden", "croatia", "atlantis"],
+                source_tv=FakeQuery, source_fx=fake_rates)
     base.update(changes)
     return Options(**base)
 
@@ -81,21 +77,22 @@ def options(tmp_path, **changes):
 def test_complete_run_without_intervention(tmp_path):
     output = run(options(tmp_path))
     assert output.report == tmp_path / "data" / "reports" / "2026-10-24_higgons.md"
-    assert output.detail.exists()
     assert output.n_eligible == 2
-    assert output.result.ranking["tv_ticker"].tolist() == ["NYSE:AAA", "OSL:BBB"]
+    assert output.result.ranking["tv_ticker"].tolist() == ["XETR:AAA", "OSL:BBB"]
 
     df = output.result.universe.set_index("tv_ticker")
     assert df.loc["OTC:EEE", "first_failed_rule"] == "R3.1"
-    assert df.loc["NASDAQ:DDD", "yahoo_match"] == "fail"
-    assert df.loc["NGM:FFF", "yahoo_match"] == "fail"
-    assert pd.isna(df.loc["OTC:EEE", "yahoo_match"])        # not evaluated
+    assert df.loc["NGM:FFF", "yahoo_mapping"] == "fail"
+    assert df["R3.6"].notna().all()                       # every rule evaluated for every stock
 
     w = output.result.warnings
     assert any(l.startswith("atlantis: error") for l in w[CAT_MARKETS])
-    assert w[CAT_MATCH] == ["NASDAQ:DDD -> DDD: different currency (Yahoo: CAD, TradingView: USD)"]
-    assert w[CAT_NO_MAPPING] == [
-        "NGM: 1 in the universe after R3.1, 1 among the survivors of the TradingView stage"]
+    assert w[CAT_NO_MAPPING] == ["NGM: 1 after R3.1", "ZSE: 1 after R3.1"]
+
+    detail = pd.read_csv(output.detail)
+    assert len(detail) == 5
+    assert {"first_bar_time", "first_bar_date", "yahoo_mapping", "reason_yahoo_mapping"} <= set(detail.columns)
+    assert not [c for c in detail.columns if c.startswith("yf_") or c == "yahoo_match"]
 
     text = output.report.read_text(encoding="utf-8")
     assert "**Partial run**" in text
@@ -103,26 +100,30 @@ def test_complete_run_without_intervention(tmp_path):
     assert "commit unknown" in text          # tmp_path is not a Git repository
 
 
-def test_todays_cache_reused(tmp_path):
-    source = FakeYahooSource()
-    run(options(tmp_path, source_yahoo=source))
-    run(options(tmp_path, source_yahoo=source))
-    assert sorted(source.calls) == ["AAA", "BBB.OL", "DDD"]   # second pass: everything from the cache
+def test_stock_without_yahoo_ticker_excluded_by_the_guard(tmp_path):
+    output = run(options(tmp_path))
+    row = output.result.universe.set_index("tv_ticker").loc["ZSE:TEST"]
+    assert row["yahoo_mapping"] == "fail" and not row["eligible"]
+    assert row["first_failed_rule"] == "yahoo_mapping"
+    assert row["reason_yahoo_mapping"] == "no verified Yahoo mapping for exchange ZSE"
+    text = output.report.read_text(encoding="utf-8")
+    assert "| Yahoo ticker available | 2 | 2 | 0 |" in text      # NGM:FFF and ZSE:TEST
 
 
-def test_output_and_no_cache(tmp_path):
-    source = FakeYahooSource()
-    output = run(options(tmp_path, output=tmp_path / "elsewhere", no_cache=True, source_yahoo=source))
+def test_output_option(tmp_path):
+    output = run(options(tmp_path, output=tmp_path / "elsewhere"))
     assert output.report.parent == tmp_path / "elsewhere"
-    assert not (tmp_path / "data" / "cache").exists()
+    assert output.detail.parent == tmp_path / "elsewhere"
+    assert not (tmp_path / "data").exists()
 
 
 def test_command_arguments():
-    args = parse_args(["run", "--no-cache", "--markets", "america, uk"])
-    assert args.command == "run" and args.no_cache and args.strategy == "higgons"
-    assert args.markets == "america, uk"
-    with pytest.raises(SystemExit):
-        parse_args(["run", "--compare", "list.csv"])
+    args = parse_args(["run", "--markets", "france, germany", "--output", "out"])
+    assert args.command == "run" and args.strategy == "higgons"
+    assert args.markets == "france, germany" and str(args.output) == "out"
+    for removed in (["--compare", "list.csv"], ["--no-cache"]):
+        with pytest.raises(SystemExit):
+            parse_args(["run", *removed])
 
 
 def test_every_market_failing(tmp_path):

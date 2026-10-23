@@ -1,6 +1,6 @@
 """No threshold written in the strategy code.
 
-Syntax analysis (AST) of filters.py, fundamentals.py and scoring.py: the only numeric
+Syntax analysis (AST) of filters.py and scoring.py: the only numeric
 constants allowed are 0, 1 and 100 (percentages). Every threshold comes from config.yaml.
 """
 
@@ -12,7 +12,7 @@ import pytest
 import investment_agent.strategies.higgons as higgons
 
 FOLDER = Path(higgons.__file__).parent
-FILES = ["filters.py", "fundamentals.py", "scoring.py"]
+FILES = ["filters.py", "scoring.py"]
 ALLOWED = {0, 1, 100}
 
 

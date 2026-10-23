@@ -13,24 +13,24 @@ META = {"commit": "a1b2c3d", "start": dt.datetime(2026, 10, 24, 8, 14), "duratio
 
 
 def test_report_identical_to_the_reference():
-    stocks, data = three_stocks()
-    text = render_report(fake_result(stocks, data), config(), META)
+    stocks = three_stocks()
+    text = render_report(fake_result(stocks), config(), META)
     expected = (EXPECTED / "report_min.md").read_text(encoding="utf-8")
     assert text == expected
 
 
 def test_rule_not_implemented_listed():
-    stocks, data = three_stocks()
+    stocks = three_stocks()
     cfg = config()
     assert cfg["rules"]["R6"]["status"] == "not_implemented"
-    text = render_report(fake_result(stocks, data), cfg, META)
+    text = render_report(fake_result(stocks), cfg, META)
     section = text.split("## Rules not applied")[1]
     assert "| R6 | V5 | portfolio construction |" in section
     assert "| R4.1 |" not in section          # rule implemented without a limitation: not listed
 
 
 def test_no_eligible_stock():
-    res = fake_result([tv_stock(pe_ttm=30.0)], {})
+    res = fake_result([tv_stock(pe_ttm=30.0)])
     text = render_report(res, config(), META)
     ranking = text.split("## Ranking")[1].split("##")[0]
     assert "No eligible stock." in ranking
@@ -39,23 +39,24 @@ def test_no_eligible_stock():
 
 
 def test_partial_run_reported():
-    stocks, data = three_stocks()
-    text = render_report(fake_result(stocks, data), config(),
+    stocks = three_stocks()
+    text = render_report(fake_result(stocks), config(),
                          {**META, "partial_markets": ["america"]})
     assert "**Partial run**: markets america only." in text
 
 
 def test_report_and_csv_written(tmp_path):
-    stocks, data = three_stocks()
-    res = fake_result(stocks, data)
+    stocks = three_stocks()
+    res = fake_result(stocks)
     path = write_report("# test\n", tmp_path / "reports", dt.date(2026, 10, 24), "higgons")
     assert path.name == "2026-10-24_higgons.md"
     csv = write_detail(res.universe, tmp_path / "reports")
     reread = pd.read_csv(csv, encoding="utf-8")
     assert list(reread.columns[:4]) == ["tv_ticker", "yahoo_ticker", "eligible", "first_failed_rule"]
     assert len(reread) == 3
-    assert reread.loc[0, "warnings"].startswith("Splits detected")
     assert reread.loc[2, "R4.2"] == "missing"
+    assert reread.loc[0, "first_bar_date"] == "2015-01-02"
+    assert not [c for c in reread.columns if c.startswith("yf_")]
 
 
 def test_number_formatting():
@@ -69,8 +70,8 @@ def test_number_formatting():
 def test_missing_data_grouped_by_stock():
     nan = float("nan")
     res = fake_result([tv_stock(tv_ticker="NYSE:EMPTY", yahoo_ticker="EMPTY", pe_ttm=nan, roe_ttm=nan,
-                                revenue_cagr_5y=nan)], {})
+                                revenue_cagr_5y=nan)])
     text = render_report(res, config(), META)
-    assert ("| NYSE:EMPTY (EMPTY) | R4.1, R4.2, R4.3 | P/E missing ; ROE missing ; 5-year revenue CAGR missing "
-            "(later steps not evaluated) |") in text
+    assert ("| NYSE:EMPTY (EMPTY) | R4.1, R4.2, R4.3 | P/E missing ; ROE missing ; 5-year revenue CAGR missing |"
+            ) in text
     assert "Stocks concerned: 1." in text

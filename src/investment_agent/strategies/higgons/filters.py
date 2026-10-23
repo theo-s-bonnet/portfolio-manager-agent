@@ -1,8 +1,8 @@
 """Rules of the Higgons strategy (universe and eligibility filters): one pure function per rule.
 
 Each function `rX_Y(df, cfg)` receives the universe (columns named after the internal names
-of `tradingview_fields`, plus the derived columns and the `yf_` columns of fundamentals.py)
-and returns two Series aligned on the index of `df`:
+of `tradingview_fields`, plus the derived columns of `add_derived_columns`) and returns two
+Series aligned on the index of `df`:
 - the status: `pass`, `fail` or `missing` (R4.11: missing data is never replaced);
 - the reason: measured value and threshold, or the missing data (empty or explanatory on `pass`).
 
@@ -100,12 +100,14 @@ def _missing(*pairs: tuple[str, object]) -> str:
 
 
 def add_derived_columns(df: pd.DataFrame, rates: dict[str, float]) -> pd.DataFrame:
-    """Adds market_cap_eur (R3.2), liquidity_eur (R3.3) and net_debt_ebitda (R4.4).
+    """Adds market_cap_eur (R3.2), liquidity_eur (R3.3), net_debt_ebitda (R4.4) and
+    first_bar_date (R3.6).
 
     The market cap is converted with the currency of the amounts (`reporting_currency`), the
     liquidity (average volume x last price) with the price currency (`currency`): in London
     prices are in GBX while amounts are in GBP.
     The net debt / EBITDA ratio is not computed (NaN) if EBITDA is <= 0 or missing.
+    first_bar_date: UTC day of `first_bar_time` (Unix time in seconds), NaT if missing.
     """
     df = df.copy()
     df["market_cap_eur"] = pd.Series(
@@ -121,6 +123,8 @@ def add_derived_columns(df: pd.DataFrame, rates: dict[str, float]) -> pd.DataFra
     df["net_debt_ebitda"] = pd.Series(
         [safe_ratio(nd, e) for nd, e in zip(df["net_debt"], df["ebitda_ttm"])],
         index=df.index, dtype="float64")
+    seconds = pd.to_numeric(df["first_bar_time"], errors="coerce")
+    df["first_bar_date"] = pd.to_datetime(seconds, unit="s").dt.normalize()
     return df
 
 
@@ -237,29 +241,24 @@ def r3_5(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
 
 
 def r3_6(df: pd.DataFrame, cfg: dict, run_date: dt.date) -> tuple[pd.Series, pd.Series]:
-    """At least price_history_months of prices and balance_sheet_history_years balance sheets,
-    including Y and Y-2.
+    """Data guard: at least price_history_months of prices, checked on the date of the symbol's
+    first TradingView bar (first_bar_date).
 
-    The first valid price must be no later than (date - price_history_months months
-    + history_start_tolerance_days). Missing data -> `fail`.
+    `pass` if first_bar_date <= run date - price_history_months months
+    + history_start_tolerance_days. A ticker change resets the first bar: the 6-month performance
+    and the EMA are then computed on the short history, so the stock is excluded as well.
     """
     u, t = cfg["universe"], cfg["technical"]
     limit = (pd.Timestamp(run_date) - pd.DateOffset(months=u["price_history_months"])
              + pd.Timedelta(days=t["history_start_tolerance_days"]))
-    n_min = u["balance_sheet_history_years"]
 
     def rule(v):
-        first = _date(v.get("yf_first_price_date"))
+        first = _date(v.get("first_bar_date"))
         if first is None:
-            return FAIL, "empty Yahoo price history"
+            return MISSING, "first TradingView bar missing"
         if first > limit:
             return FAIL, (f"first price on {first:%Y-%m-%d}, less than "
                           f"{u['price_history_months']} months of history")
-        n = _number(v.get("yf_balance_sheet_count"))
-        if n is None or n < n_min:
-            return FAIL, f"{_v(n or 0)} annual balance sheets at Yahoo (minimum {n_min})"
-        if _date(v.get("yf_date_y2")) is None:
-            return FAIL, "Y-2 balance sheet not found at the expected date"
         return PASS, ""
 
     return _apply(df, rule)
@@ -386,129 +385,6 @@ def r4_12_tv(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
     return _apply(df, rule)
 
 
-# --- eligibility filters computed on Yahoo data (yf_ columns of fundamentals.py) ----------
-
-
-def r4_7(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Net cash in Y and Y-2, or a decrease of net debt / equity of at least N points.
-
-    Net debt = Total Debt - cash and cash equivalents (short-term investments excluded).
-    The ratio is computed only if equity is > 0 in Y and Y-2; otherwise `fail` (R4.12).
-    Low but positive equity: the ratio is computed as is, even if it becomes very large.
-    """
-    threshold, tol = cfg["filters"]["debt_to_equity_decrease_min_points"], _tol(cfg)
-
-    def rule(v):
-        nd_y, nd_y2 = _number(v.get("yf_net_debt_y")), _number(v.get("yf_net_debt_y2"))
-        if nd_y is None or nd_y2 is None:
-            return MISSING, _missing(
-                ("total debt Y", _number(v.get("yf_debt_y"))),
-                ("cash Y", _number(v.get("yf_cash_y"))),
-                ("total debt Y-2", _number(v.get("yf_debt_y2"))),
-                ("cash Y-2", _number(v.get("yf_cash_y2"))))
-        if _lt(nd_y, 0, tol) and _lt(nd_y2, 0, tol):
-            return PASS, "net cash in Y and Y-2"
-        eq_y, eq_y2 = _number(v.get("yf_equity_y")), _number(v.get("yf_equity_y2"))
-        if (eq_y is not None and _le(eq_y, 0, tol)) or (eq_y2 is not None and _le(eq_y2, 0, tol)):
-            return FAIL, "equity ≤ 0: ratio not computed (R4.12)"
-        if eq_y is None or eq_y2 is None:
-            return MISSING, _missing(("equity Y", eq_y), ("equity Y-2", eq_y2))
-        ratio_y, ratio_y2 = nd_y / eq_y * 100, nd_y2 / eq_y2 * 100
-        change = ratio_y - ratio_y2
-        if _le(change, -threshold, tol):
-            return PASS, f"net debt/equity {_v(ratio_y2)}% → {_v(ratio_y)}%"
-        sign = "+" if change > 0 else ""
-        return FAIL, (f"net debt/equity {_v(ratio_y2)}% → {_v(ratio_y)}% "
-                      f"({sign}{_v(change)} points, minimum decrease {_v(threshold)})")
-
-    return _apply(df, rule)
-
-
-def r4_9(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Book value per share (split-adjusted diluted shares) strictly up from Y-2 to Y."""
-    tol = _tol(cfg)
-
-    def rule(v):
-        eq_y, eq_y2 = _number(v.get("yf_equity_y")), _number(v.get("yf_equity_y2"))
-        if (eq_y is not None and _le(eq_y, 0, tol)) or (eq_y2 is not None and _le(eq_y2, 0, tol)):
-            return FAIL, "equity ≤ 0"
-        n_y, n_y2 = _number(v.get("yf_diluted_shares_y")), _number(v.get("yf_diluted_shares_y2"))
-        if eq_y is None or eq_y2 is None or n_y is None or n_y2 is None:
-            return MISSING, _missing(("equity Y", eq_y), ("equity Y-2", eq_y2),
-                                     ("diluted shares Y", n_y), ("diluted shares Y-2", n_y2))
-        bvps_y, bvps_y2 = safe_ratio(eq_y, n_y), safe_ratio(eq_y2, n_y2)
-        if bvps_y is None or bvps_y2 is None:
-            return MISSING, "share count ≤ 0"
-        if _gt(bvps_y, bvps_y2, tol):
-            return PASS, ""
-        return FAIL, f"book value per share {_v(bvps_y2)} → {_v(bvps_y)} (strict increase required)"
-
-    return _apply(df, rule)
-
-
-def r4_10a(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """(N_Y / N_Y-2)^(1/dilution_years) - 1 <= dilution_annual_max_pct (diluted, split-adjusted)."""
-    f, tol = cfg["filters"], _tol(cfg)
-    threshold, years = f["dilution_annual_max_pct"], f["dilution_years"]
-
-    def rule(v):
-        n_y, n_y2 = _number(v.get("yf_diluted_shares_y")), _number(v.get("yf_diluted_shares_y2"))
-        if n_y is None or n_y2 is None:
-            return MISSING, _missing(("diluted shares Y", n_y), ("diluted shares Y-2", n_y2))
-        q = safe_ratio(n_y, n_y2)
-        if q is None or q <= 0:
-            return MISSING, "share count ≤ 0"
-        rate = (q ** (1 / years) - 1) * 100
-        if _le(rate, threshold, tol):
-            return PASS, ""
-        return FAIL, f"dilution {_v(rate)}%/yr > {_v(threshold)}%"
-
-    return _apply(df, rule)
-
-
-def r4_10b(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Current shares / shares at the close of Y (split-adjusted) - 1 <= dilution_recent_max_pct.
-
-    Ratio outside [suspect_share_ratio_min, suspect_share_ratio_max]: `missing` (multiple share
-    classes likely), reported in the warnings.
-    """
-    t, tol = cfg["technical"], _tol(cfg)
-    threshold = cfg["filters"]["dilution_recent_max_pct"]
-
-    def rule(v):
-        current, at_close = _number(v.get("yf_shares_current")), _number(v.get("yf_shares_y"))
-        if current is None or at_close is None:
-            return MISSING, _missing(("current shares", current), ("shares at the close of Y", at_close))
-        ratio = safe_ratio(current, at_close)
-        if ratio is None:
-            return MISSING, "share count at the close ≤ 0"
-        if not t["suspect_share_ratio_min"] <= ratio <= t["suspect_share_ratio_max"]:
-            return MISSING, f"suspect share ratio ({_v(ratio)}): multiple share classes?"
-        change = (ratio - 1) * 100
-        if _le(change, threshold, tol):
-            return PASS, ""
-        return FAIL, f"shares +{_v(change)}% since the close of Y > {_v(threshold)}%"
-
-    return _apply(df, rule)
-
-
-def r4_12_yf(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Equity > 0 in Y and in Y-2."""
-    tol = _tol(cfg)
-
-    def rule(v):
-        eq_y, eq_y2 = _number(v.get("yf_equity_y")), _number(v.get("yf_equity_y2"))
-        negatives = [f"equity {name} {_v(x)} ≤ 0" for name, x in (("Y", eq_y), ("Y-2", eq_y2))
-                     if x is not None and _le(x, 0, tol)]
-        if negatives:
-            return FAIL, " ; ".join(negatives)
-        if eq_y is None or eq_y2 is None:
-            return MISSING, _missing(("equity Y", eq_y), ("equity Y-2", eq_y2))
-        return PASS, ""
-
-    return _apply(df, rule)
-
-
 # --- sequence ----------------------------------------------------------------------------
 
 TV_RULES: dict[str, Rule] = {
@@ -528,30 +404,14 @@ TV_RULES: dict[str, Rule] = {
 }
 
 
-def filter_tv(df: pd.DataFrame, cfg: dict, rates: dict[str, float]) -> pd.DataFrame:
-    """Derived columns, then one status column and one reason column per TradingView rule."""
+def filter_tv(df: pd.DataFrame, cfg: dict, rates: dict[str, float], run_date: dt.date) -> pd.DataFrame:
+    """Derived columns, then one status column and one reason column per rule.
+
+    Every rule is evaluated for every stock. `rates`: exchange rates to the euro (R3.2, R3.3);
+    `run_date`: date of the run (R3.6), so that the result is deterministic.
+    """
     df = add_derived_columns(df, rates)
     for rule, function in TV_RULES.items():
         df[rule], df[reason_column(rule)] = function(df, cfg)
-    return df
-
-
-YAHOO_RULES: dict[str, Rule] = {
-    "R4.7": r4_7,
-    "R4.9": r4_9,
-    "R4.10a": r4_10a,
-    "R4.10b": r4_10b,
-    "R4.12_yf": r4_12_yf,
-}
-
-
-def filter_yahoo(df: pd.DataFrame, cfg: dict, run_date: dt.date) -> pd.DataFrame:
-    """Statuses of the Yahoo-stage rules (R3.6 first), from the `yf_` columns.
-
-    To be called only on the stocks whose Yahoo data has been extracted.
-    """
-    df = df.copy()
     df["R3.6"], df[reason_column("R3.6")] = r3_6(df, cfg, run_date)
-    for rule, function in YAHOO_RULES.items():
-        df[rule], df[reason_column(rule)] = function(df, cfg)
     return df

@@ -1,26 +1,21 @@
-"""Universe filters R3.1 to R3.6."""
+"""Universe filters R3.1 to R3.5 and data guard R3.6."""
 
 import pandas as pd
 import pytest
 
-from helpers import DATE, RATES, config, prices_since, statement, tv_stock, universe, yahoo_data
-from investment_agent.strategies.higgons import extract_yahoo, filter_tv, filter_yahoo
+from helpers import DATE, RATES, config, tv_stock, universe, unix_time
+from investment_agent.strategies.higgons import filter_tv
 
 CFG = config()
 U = CFG["universe"]
 
 
 def tv(*stocks, rates=RATES):
-    return filter_tv(universe(*stocks), CFG, rates)
+    return filter_tv(universe(*stocks), CFG, rates, DATE)
 
 
 def status(df, rule, i=0):
     return df[rule].iloc[i]
-
-
-def yahoo(data):
-    row = extract_yahoo(data, DATE, CFG)
-    return filter_yahoo(pd.DataFrame([row]), CFG, DATE)
 
 
 def test_reference_stock_passes_r3_1_to_r3_5():
@@ -66,7 +61,7 @@ def test_type_missing():
 def test_excluded_typespecs():
     cfg = config()
     cfg["universe"]["excluded_typespecs"] = ["preferred"]
-    df = filter_tv(universe(tv_stock(subtype=["preferred"])), cfg, RATES)
+    df = filter_tv(universe(tv_stock(subtype=["preferred"])), cfg, RATES, DATE)
     assert df["R3.4"].iloc[0] == "fail"
 
 
@@ -134,57 +129,43 @@ def test_london_gbp_and_gbx():
     assert status(df, "R3.2") == "fail"
 
 
-# --- R3.6 (Yahoo stage) ---------------------------------------------------------------
+# --- R3.6 (data guard: first TradingView bar) ----------------------------------------
+# DATE = 2026-10-24: limit = 2026-04-24 + 7 days of tolerance = 2026-05-01.
 
-def test_r3_6_complete_data():
-    df = yahoo(yahoo_data())
-    assert df["R3.6"].iloc[0] == "pass"
+def test_r3_6_long_history():
+    df = tv(tv_stock())                                   # first bar on 2015-01-02
+    assert status(df, "R3.6") == "pass"
 
 
 def test_recent_ipo():
-    df = yahoo(yahoo_data(prices=prices_since("2026-06-24")))   # 4 months
-    assert df["R3.6"].iloc[0] == "fail"
-    assert "first price" in df["reason_R3.6"].iloc[0]
+    df = tv(tv_stock(first_bar_time=unix_time("2026-06-24")))   # 4 months
+    assert status(df, "R3.6") == "fail"
+    assert df["reason_R3.6"].iloc[0] == "first price on 2026-06-24, less than 6 months of history"
 
 
 def test_history_starting_two_days_after_the_limit():
-    # date - 6 months = 2026-04-24 (Friday); first price on Sunday 04-26 -> Monday 04-27
-    series = pd.Series(100.0, index=pd.bdate_range("2026-04-26", "2026-10-23", tz="America/New_York"))
-    df = yahoo(yahoo_data(prices=series))
-    assert df["R3.6"].iloc[0] == "pass"
+    df = tv(tv_stock(first_bar_time=unix_time("2026-04-26")))   # DATE - 6 months + 2 days
+    assert status(df, "R3.6") == "pass"
 
 
-def test_empty_history():
-    df = yahoo(yahoo_data(prices=pd.Series(dtype=float)))
-    assert df["R3.6"].iloc[0] == "fail"
+def test_first_bar_missing():
+    df = tv(tv_stock(first_bar_time=float("nan")))
+    assert status(df, "R3.6") == "missing"
+    assert pd.isna(df["first_bar_date"].iloc[0])
 
 
-def test_missing_year_y2_not_found():
-    b = statement({"2025-12-31": {"Total Debt": 1.0}, "2024-12-31": {"Total Debt": 1.0},
-                   "2022-12-31": {"Total Debt": 1.0}})
-    df = yahoo(yahoo_data(balance_sheet=b))
-    assert df["R3.6"].iloc[0] == "fail"
-    assert "Y-2" in df["reason_R3.6"].iloc[0]
+def test_first_bar_one_day_after_the_tolerance():
+    df = tv(tv_stock(first_bar_time=unix_time("2026-05-02")))   # DATE - 6 months + 8 days
+    assert status(df, "R3.6") == "fail"
 
 
-def test_only_two_balance_sheets():
-    b = statement({"2025-12-31": {"Total Debt": 1.0}, "2023-12-31": {"Total Debt": 1.0}})
-    df = yahoo(yahoo_data(balance_sheet=b))
-    assert df["R3.6"].iloc[0] == "fail"
-    assert "2 annual balance sheets" in df["reason_R3.6"].iloc[0]
+def test_first_bar_exactly_at_the_limit():
+    df = tv(tv_stock(first_bar_time=unix_time("2026-05-01")))
+    assert status(df, "R3.6") == "pass"
 
 
-def test_empty_yfinance_column_ignored():
-    # yfinance sometimes returns an old column without any value: it does not count
-    b = statement({"2025-12-31": {"Total Debt": 1.0}, "2024-12-31": {"Total Debt": 1.0},
-                   "2023-12-31": {"Total Debt": float("nan")}})
-    df = yahoo(yahoo_data(balance_sheet=b))
-    assert df["R3.6"].iloc[0] == "fail"
-
-
-def test_y2_found_with_a_date_offset():
-    # shifted fiscal year: Y on 2025-06-30, Y-2 on 2023-07-31 (31 days apart, tolerance 45)
-    b = statement({"2025-06-30": {"Total Debt": 1.0}, "2024-06-30": {"Total Debt": 1.0},
-                   "2023-07-31": {"Total Debt": 1.0}})
-    row = extract_yahoo(yahoo_data(balance_sheet=b), DATE, CFG)
-    assert row["yf_date_y2"] == pd.Timestamp("2023-07-31")
+def test_ticker_change_resets_the_history():
+    # new symbol one month ago: TradingView still gives a 6-month performance (since the first bar)
+    df = tv(tv_stock(first_bar_time=unix_time("2026-09-24"), perf_6m=12.0))
+    assert status(df, "R4.6") == "pass"
+    assert status(df, "R3.6") == "fail"

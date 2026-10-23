@@ -2,8 +2,8 @@
 # Units are in the key names. Operators (<=, <, >) are fixed by each rule in the code;
 # thresholds always live here. Any change increments config_version.
 strategy: higgons
-strategy_version: "1.1"         # version of the written rule set
-config_version: "1.0.0"         # incremented on every change to this file
+strategy_version: "2.0"         # version of the written rule set
+config_version: "2.0.0"         # incremented on every change to this file
 
 universe:
   markets: [america, canada,                                  # EU + EEA + United Kingdom + Switzerland
@@ -27,7 +27,6 @@ universe:
   market_cap_max_eur: 10000000000
   liquidity_min_eur_per_day: 100000
   price_history_months: 6
-  balance_sheet_history_years: 3
 
 filters:
   pe_ttm_max: 12
@@ -66,19 +65,14 @@ tradingview_fields:                               # checked against the scanner 
   revenue_cagr_5y: total_revenue_cagr_5y
   net_debt: net_debt
   ebitda_ttm: ebitda
-  net_debt_ebitda_tv: net_debt_to_ebitda_fq       # used by --compare only (MRQ / TTM)
   net_income_ttm: net_income_ttm
   ema: EMA100
   perf_6m: Perf.6M
+  first_bar_time: first_bar_time                  # Unix time of the symbol's first bar (reset by a ticker change)
 
 technical:                                        # data-quality parameters, not strategy rules
   comparison_tolerance: 1.0e-9
-  balance_sheet_date_tolerance_days: 45
   history_start_tolerance_days: 7
-  tv_yahoo_price_gap_max_pct: 10
-  suspect_share_ratio_min: 0.5
-  suspect_share_ratio_max: 2.0
-  yahoo_pause_s: 0.5
   tradingview_limit: 100000
 
 rules:                                            # register read by the report

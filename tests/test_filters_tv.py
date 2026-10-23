@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from helpers import RATES, config, tv_stock, universe
+from helpers import DATE, RATES, config, tv_stock, universe
 from investment_agent.strategies.higgons import filter_tv
 from investment_agent.strategies.higgons.filters import TV_RULES
 
@@ -11,13 +11,19 @@ F = CFG["filters"]
 
 
 def tv(**changes):
-    df = filter_tv(universe(tv_stock(**changes)), CFG, RATES)
+    df = filter_tv(universe(tv_stock(**changes)), CFG, RATES, DATE)
     return df.iloc[0]
 
 
-def test_reference_stock_passes_every_tv_rule():
+def test_reference_stock_passes_every_rule():
     row = tv()
-    assert {r: row[r] for r in TV_RULES} == {r: "pass" for r in TV_RULES}
+    rules = [*TV_RULES, "R3.6"]
+    assert {r: row[r] for r in rules} == {r: "pass" for r in rules}
+
+
+def test_first_bar_date_from_unix_time():
+    row = tv(first_bar_time=1_746_057_600)                # 2025-05-01 00:00 UTC
+    assert row["first_bar_date"] == pd.Timestamp("2025-05-01")
 
 
 def test_pe_equal_to_the_maximum():
