@@ -13,7 +13,7 @@ The script:
    Yahoo (same currency expected);
 3. for each market of the universe (primary listings, type stock): exchanges, `typespecs`
    values, headquarters countries missing from universe.hq_countries, ISIN prefixes missing
-   from technical.eu_eea_isin_prefixes, and stocks whose first bar is less than 6 months old.
+   from universe.eu_eea_isin_prefixes, and stocks whose first bar is less than 6 months old.
 
 This script is a one-off verification tool: it may contain candidate field names, which is
 forbidden in the rest of the code (the retained names go into config.yaml).
@@ -103,7 +103,7 @@ def step_2() -> None:
 
 def step_3() -> None:
     print("\n=== 3. Markets of the universe ===")
-    countries, prefixes = set(CFG["universe"]["hq_countries"]), tuple(CFG["technical"]["eu_eea_isin_prefixes"])
+    countries, prefixes = set(CFG["universe"]["hq_countries"]), tuple(CFG["universe"]["eu_eea_isin_prefixes"])
     limit = pd.Timestamp(dt.date.today()) - pd.DateOffset(months=CFG["universe"]["price_history_months"])
     for market in CFG["universe"]["markets"]:
         _, df = (Query().set_markets(market)

@@ -2,19 +2,20 @@
 # Units are in the key names. Operators (<=, <, >) are fixed by each rule in the code;
 # thresholds always live here. Any change increments config_version.
 strategy: higgons
-strategy_version: "2.0"         # version of the written rule set
-config_version: "2.0.0"         # incremented on every change to this file
+strategy_version: "2.1"         # version of the written rule set
+config_version: "2.1.0"         # incremented on every change to this file
 
 universe:
-  markets: [austria, belgium, bulgaria, croatia, cyprus, czech, denmark, estonia,      # EU + EEA
-            finland, france, germany, greece, hungary, iceland, ireland, italy,
-            latvia, lithuania, luxembourg, netherlands, norway, poland, portugal,
-            romania, slovakia, slovenia, spain, sweden]
+  markets: [france, belgium, netherlands, portugal,   # markets where the broker accepts online orders:
+            germany, italy, spain]                # Euronext, Xetra, Milan, Madrid
   hq_countries: [Austria, Belgium, Bulgaria, Croatia, Cyprus, Czech Republic, Denmark,  # TradingView spelling
                  Estonia, Finland, Aland Islands, France, La Reunion, Germany, Greece,
                  Hungary, Iceland, Ireland, Italy, Latvia, Liechtenstein, Lithuania,
                  Luxembourg, Malta, Netherlands, Norway, Poland, Portugal, Romania,
                  Slovakia, Slovenia, Spain, Sweden]
+  eu_eea_isin_prefixes: [AT, BE, BG, CY, CZ, CS, DE, DK, EE, ES, FI, FR, GR, HR, HU, IE,   # usually the country
+                         IS, IT, LI, LT, LU, LV, MT, NL, "NO", PL, PT, RO, SE, SI, SK]     # of incorporation
+                                                  # CS: legacy Czech prefix; "NO" quoted (YAML boolean)
   excluded_exchanges: [OTC]
   allowed_types: [stock]                          # funds, ETFs, units, REITs: type fund; depositary receipts: dr
   excluded_typespecs: [preferred]
@@ -77,11 +78,9 @@ technical:                                        # data-quality parameters, not
   comparison_tolerance: 1.0e-9
   history_start_tolerance_days: 7
   tradingview_limit: 100000
-  eu_eea_isin_prefixes: [AT, BE, BG, CY, CZ, CS, DE, DK, EE, ES, FI, FR, GR, HR, HU, IE,   # warning only
-                         IS, IT, LI, LT, LU, LV, MT, NL, "NO", PL, PT, RO, SE, SI, SK]     # CS: legacy Czech prefix; "NO" quoted (YAML boolean)
 
 rules:                                            # register read by the report
-  R3.1:   {status: implemented, kind: universe, note: "headquarters country from TradingView (may be the operational seat); PEA eligibility confirmed with the broker"}
+  R3.1:   {status: implemented, kind: universe, note: "markets limited to those where the broker accepts online orders; headquarters country from TradingView (may be the operational seat) and ISIN prefix both in the EU/EEA; PEA eligibility confirmed with the broker"}
   R3.2:   {status: implemented, kind: universe}
   R3.3:   {status: implemented, kind: universe, note: "90-day average volume x last price"}
   R3.4:   {status: implemented, kind: universe, note: "SPACs listed as common stock cannot be detected"}

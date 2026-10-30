@@ -1,5 +1,5 @@
 # Higgons screener: Saturday 2026-10-24
-Strategy 2.0 · config 2.0.0 · commit a1b2c3d · run on 2026-10-24 at 08:14 · duration 6 min 12 s
+Strategy 2.1 · config 2.1.0 · commit a1b2c3d · run on 2026-10-24 at 08:14 · duration 6 min 12 s
 Sources: TradingView (delayed data). Exchange rates: last Yahoo Finance close available on 2026-10-24.
 
 ## Summary
@@ -8,7 +8,7 @@ Sources: TradingView (delayed data). Exchange rates: last Yahoo Finance close av
 |---|---|---|---|
 | TradingView universe (2 markets) | 3 | — | — |
 | **Universe** |  |  |  |
-| R3.1 PEA universe: market, headquarters, primary listing | 3 | 0 | 0 |
+| R3.1 PEA universe: broker market, headquarters and ISIN in the EU/EEA, primary listing | 3 | 0 | 0 |
 | R3.2 market cap | 3 | 0 | 0 |
 | R3.3 liquidity (approximate) | 3 | 0 | 0 |
 | R3.4 stocks only (preferred shares excluded outside Germany) | 3 | 0 | 0 |
@@ -36,7 +36,7 @@ Retained ROE: 1 stocks of the universe use the fallback (TradingView ROE missing
 
 | # | Stock | Name | Country | Sector | Score | Perf 6M | P/E | ROE | Rev. CAGR 5y | ND/EBITDA |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 1 | OSL:BBB (BBB.OL) | Bravo ASA | Norway | Transportation | 75.0 | +40.0% (100) | 8.3† (0) | 25.0% (100) | 12.0% (100) | −0.5 (100) |
+| 1 | MIL:BBB (BBB.MI) | Bravo SpA | Italy | Transportation | 75.0 | +40.0% (100) | 8.3† (0) | 25.0% (100) | 12.0% (100) | −0.5 (100) |
 | 2 | EURONEXT:AAA (AAA.PA) | Alpha SA | France | Producer Manufacturing | 25.0 | +25.0% (0) | 6.0 (100) | 18.2%‡ (0) | 8.0% (0) | 0.5 (0) |
 
 Raw value, then percentile rank among eligible stocks in parentheses.
@@ -61,10 +61,7 @@ Stocks concerned: 1.
 None.
 
 ### Retained P/E: fallback to market cap / TTM net income (TradingView P/E missing) (1)
-- OSL:BBB: retained P/E 8.33
-
-### Statutory country (ISIN prefix) outside the EU/EEA: check PEA eligibility (1)
-- EURONEXT:AAA: ISIN BMG000TEST01, headquarters France
+- MIL:BBB: retained P/E 8.33
 
 ### Retained ROE: fallback to TTM net income / shareholders' equity (TradingView ROE missing) (1)
 - EURONEXT:AAA: retained ROE 18.18%
@@ -74,13 +71,13 @@ None.
 
 ### Eligible by country (2)
 - France: 1
-- Norway: 1
+- Italy: 1
 
 ## Rules not applied or applied with a limitation
 
 | Rule | Planned version | Reason |
 |---|---|---|
-| R3.1 | implemented, with a limitation | headquarters country from TradingView (may be the operational seat); PEA eligibility confirmed with the broker |
+| R3.1 | implemented, with a limitation | markets limited to those where the broker accepts online orders; headquarters country from TradingView (may be the operational seat) and ISIN prefix both in the EU/EEA; PEA eligibility confirmed with the broker |
 | R3.3 | implemented, with a limitation | 90-day average volume x last price |
 | R3.4 | implemented, with a limitation | SPACs listed as common stock cannot be detected |
 | R1 | out_of_scope | overall allocation, checked manually |

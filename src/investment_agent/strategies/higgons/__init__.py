@@ -10,7 +10,7 @@ from pathlib import Path
 
 from investment_agent.engine.statuses import MAPPING_COLUMN, MAPPING_LABEL
 from investment_agent.strategies.higgons.filters import (
-    CATEGORY_ISIN, CATEGORY_PE_FALLBACK, CATEGORY_ROE_FALLBACK, CATEGORY_ROE_NEGATIVE, PE_FALLBACK,
+    CATEGORY_PE_FALLBACK, CATEGORY_ROE_FALLBACK, CATEGORY_ROE_NEGATIVE, PE_FALLBACK,
     ROE_FALLBACK, filter_tv)
 from investment_agent.strategies.higgons.scoring import COMPONENT_COLUMNS, pct_column, rank
 
@@ -21,7 +21,7 @@ CONFIG_PATH = Path(__file__).with_name("config.yaml")
 # Required keys of config.yaml, checked by engine.config.validate_config.
 REQUIRED_KEYS: dict[str, list[str]] = {
     "universe": [
-        "markets", "hq_countries", "excluded_exchanges", "allowed_types", "excluded_typespecs",
+        "markets", "hq_countries", "eu_eea_isin_prefixes", "excluded_exchanges", "allowed_types", "excluded_typespecs",
         "typespec_exempt_markets", "excluded_fund_industries", "excluded_bank_insurance_industries",
         "market_cap_min_eur", "market_cap_max_eur", "liquidity_min_eur_per_day",
         "price_history_months",
@@ -39,7 +39,6 @@ REQUIRED_KEYS: dict[str, list[str]] = {
     ],
     "technical": [
         "comparison_tolerance", "history_start_tolerance_days", "tradingview_limit",
-        "eu_eea_isin_prefixes",
     ],
 }
 
@@ -52,7 +51,7 @@ REQUIRED_KEYS: dict[str, list[str]] = {
 # ticker guard is an engine step (no download).
 FUNNEL: list[tuple[str, list[tuple[str, str]]]] = [
     ("Universe", [
-        ("R3.1", "R3.1 PEA universe: market, headquarters, primary listing"),
+        ("R3.1", "R3.1 PEA universe: broker market, headquarters and ISIN in the EU/EEA, primary listing"),
         ("R3.2", "R3.2 market cap"),
         ("R3.3", "R3.3 liquidity (approximate)"),
         ("R3.4", "R3.4 stocks only (preferred shares excluded outside Germany)"),
@@ -79,7 +78,7 @@ DESCRIPTION_COLUMNS = [("Name", "name"), ("Country", "country"), ("Sector", "sec
 CURRENCY_COLUMNS = ["currency", "reporting_currency"]
 COUNTRY_COLUMN = "country"
 # Strategy warning categories (column `warnings` filled by filter_tv), in report order.
-WARNING_CATEGORIES = [CATEGORY_PE_FALLBACK, CATEGORY_ISIN, CATEGORY_ROE_FALLBACK, CATEGORY_ROE_NEGATIVE]
+WARNING_CATEGORIES = [CATEGORY_PE_FALLBACK, CATEGORY_ROE_FALLBACK, CATEGORY_ROE_NEGATIVE]
 _COMPONENT_DISPLAY = {
     "momentum": ("Perf 6M", "signed_pct"),
     "value": ("P/E", "number"),

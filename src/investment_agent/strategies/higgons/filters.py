@@ -201,14 +201,20 @@ def _conversion_reason(v: dict, amount: str, currency: str, label: str) -> str:
 
 def r3_1(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
     """PEA universe: market (listing country) in the universe, exchange other than OTC, primary
-    listing, headquarters country (TradingView `country`) in the EU/EEA list."""
+    listing, headquarters country (TradingView `country`) and ISIN prefix both in the EU/EEA.
+
+    The `country` field is the declared, often operational, headquarters; the ISIN prefix usually
+    gives the country of incorporation. Neither is reliable on its own: both are required.
+    """
     u = cfg["universe"]
     markets, excluded = set(u["markets"]), set(u["excluded_exchanges"])
     countries = set(u["hq_countries"])
+    prefixes = tuple(str(p).upper() for p in u["eu_eea_isin_prefixes"])
 
     def rule(v):
         market, exchange = _text(v.get("market")), _text(v.get("exchange"))
         primary, country = _boolean(v.get("primary")), _text(v.get("country"))
+        isin = _text(v.get("isin"))
         if market is not None and market not in markets:
             return FAIL, f"market {market} outside the universe"
         if exchange is not None and exchange in excluded:
@@ -217,9 +223,12 @@ def r3_1(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
             return FAIL, "secondary listing"
         if country is not None and country not in countries:
             return FAIL, f"headquarters country {country} outside the EU/EEA"
-        if market is None or exchange is None or primary is None or country is None:
+        if isin is not None and not isin.upper().startswith(prefixes):
+            return FAIL, f"ISIN {isin}: prefix outside the EU/EEA"
+        if market is None or exchange is None or primary is None or country is None or isin is None:
             return MISSING, _missing(("market", market), ("exchange", exchange),
-                                     ("primary listing", primary), ("headquarters country", country))
+                                     ("primary listing", primary), ("headquarters country", country),
+                                     ("ISIN", isin))
         return PASS, ""
 
     return _apply(df, rule)
@@ -489,7 +498,6 @@ def r4_12(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
 # --- warnings (no effect on eligibility) ---------------------------------------------------
 
 CATEGORY_PE_FALLBACK = "Retained P/E: fallback to market cap / TTM net income (TradingView P/E missing)"
-CATEGORY_ISIN = "Statutory country (ISIN prefix) outside the EU/EEA: check PEA eligibility"
 CATEGORY_ROE_FALLBACK = ("Retained ROE: fallback to TTM net income / shareholders' equity "
                          "(TradingView ROE missing)")
 CATEGORY_ROE_NEGATIVE = "ROE ≤ 0, ranked last on quality"
@@ -498,12 +506,9 @@ CATEGORY_ROE_NEGATIVE = "ROE ≤ 0, ranked last on quality"
 def warnings_column(df: pd.DataFrame, cfg: dict) -> pd.Series:
     """List of (category, text) per stock.
 
-    For the stocks that pass the universe rules: retained P/E or retained ROE from the fallback;
-    ISIN prefix outside the EU/EEA (the TradingView `country` is the declared, often operational,
-    headquarters; the ISIN prefix usually gives the country of incorporation). For the stocks
-    that also pass the selection criteria: ROE <= 0, ranked last on quality.
+    For the stocks that pass the universe rules: retained P/E or retained ROE from the fallback.
+    For the stocks that also pass the selection criteria: ROE <= 0, ranked last on quality.
     """
-    prefixes = tuple(str(p).upper() for p in cfg["technical"]["eu_eea_isin_prefixes"])
     tol = _tol(cfg)
     in_universe = df[list(UNIVERSE_RULES)].eq(PASS).all(axis=1)
     selected = in_universe & df[list(CRITERIA)].eq(PASS).all(axis=1)
@@ -512,9 +517,6 @@ def warnings_column(df: pd.DataFrame, cfg: dict) -> pd.Series:
         items: list[tuple[str, str]] = []
         if ok and v.get("pe_source") == PE_FALLBACK:
             items.append((CATEGORY_PE_FALLBACK, f"retained P/E {_v(v['pe_retained'])}"))
-        isin = _text(v.get("isin"))
-        if ok and isin is not None and not isin.upper().startswith(prefixes):
-            items.append((CATEGORY_ISIN, f"ISIN {isin}, headquarters {_text(v.get('country'))}"))
         if ok and v.get("roe_source") == ROE_FALLBACK:
             items.append((CATEGORY_ROE_FALLBACK, f"retained ROE {_v(v[ROE_COLUMN])}%"))
         roe = _number(v.get(ROE_COLUMN))
