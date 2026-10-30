@@ -19,16 +19,15 @@ STOCKS = {
     "germany": [
         european("XETR:AAA", "germany", "XETR", "Germany", perf_6m=30.0),
         european("OTC:EEE", "germany", "OTC", "Germany"),
+        european("GETTEX:FFF", "germany", "GETTEX", "Germany", market_cap=5e9, net_income_ttm=6e8),
+        european("LS:TEST", "germany", "LS", "Germany"),        # passes every rule, no Yahoo ticker
     ],
-    "norway": [
-        european("OSL:BBB", "norway", "OSL", "Norway", currency="NOK", market_cap=5e9, net_income_ttm=6e8,
-                 perf_6m=10.0),
+    "italy": [
+        european("MIL:BBB", "italy", "MIL", "Italy", isin="IT0000000001", market_cap=5e9,
+                 net_income_ttm=6e8, perf_6m=10.0),
     ],
-    "sweden": [
-        european("NGM:FFF", "sweden", "NGM", "Sweden", currency="SEK", market_cap=5e9, net_income_ttm=6e8),
-    ],
-    "croatia": [
-        european("ZSE:TEST", "croatia", "ZSE", "Croatia"),     # passes every rule, no Yahoo ticker
+    "norway": [                                                 # EEA market outside the universe
+        european("OSL:GGG", "norway", "OSL", "Norway", currency="NOK", isin="NO0000000001"),
     ],
 }
 
@@ -69,7 +68,7 @@ def no_yahoo_download(monkeypatch):
 
 
 def options(tmp_path, **changes):
-    base = dict(date=DATE, root=tmp_path, markets=["germany", "norway", "sweden", "croatia", "atlantis"],
+    base = dict(date=DATE, root=tmp_path, markets=["germany", "italy", "norway", "atlantis"],
                 source_tv=FakeQuery, source_fx=fake_rates)
     base.update(changes)
     return Options(**base)
@@ -79,20 +78,29 @@ def test_complete_run_without_intervention(tmp_path):
     output = run(options(tmp_path))
     assert output.report == tmp_path / "data" / "reports" / "2026-10-24_higgons.md"
     assert output.n_eligible == 2
-    assert output.result.ranking["tv_ticker"].tolist() == ["XETR:AAA", "OSL:BBB"]
+    assert output.result.ranking["tv_ticker"].tolist() == ["XETR:AAA", "MIL:BBB"]
 
     df = output.result.universe.set_index("tv_ticker")
     assert df.loc["OTC:EEE", "first_failed_rule"] == "R3.1"
-    assert df.loc["NGM:FFF", "yahoo_mapping"] == "fail"
+    assert df.loc["OSL:GGG", "first_failed_rule"] == "R3.1"
+    assert df.loc["GETTEX:FFF", "yahoo_mapping"] == "fail"
     assert df["R3.6"].notna().all()                       # every rule evaluated for every stock
 
     w = output.result.warnings
     assert any(l.startswith("atlantis: error") for l in w[CAT_MARKETS])
-    assert w[CAT_NO_MAPPING] == ["NGM: 1 after R3.1", "ZSE: 1 after R3.1"]
+    assert w[CAT_NO_MAPPING] == ["GETTEX: 1 after R3.1", "LS: 1 after R3.1"]
 
     detail = pd.read_csv(output.detail)
-    assert len(detail) == 5
+    assert len(detail) == 6
     assert {"first_bar_time", "first_bar_date", "yahoo_mapping", "reason_yahoo_mapping"} <= set(detail.columns)
+    history = [f"{name}_fy_{k}" for name in ("revenue", "eps") for k in range(4)]
+    assert {*history, "revenue_cagr_3y", "eps_growth_3y"} <= set(detail.columns)
+    assert "revenue_fy_h" not in detail and "eps_fy_h" not in detail
+    assert detail.set_index("tv_ticker").loc["XETR:AAA", "eps_fy_3"] == 4.5
+    ranked = detail.dropna(subset=["score"]).sort_values("rank")         # score and rank in the CSV
+    assert ranked["tv_ticker"].tolist() == ["XETR:AAA", "MIL:BBB"]
+    assert ranked["score"].tolist() == output.result.ranking["score"].tolist()
+    assert {"pct_momentum", "pct_growth"} <= set(detail.columns)
     assert not [c for c in detail.columns if c.startswith("yf_") or c == "yahoo_match"]
 
     text = output.report.read_text(encoding="utf-8")
@@ -103,12 +111,12 @@ def test_complete_run_without_intervention(tmp_path):
 
 def test_stock_without_yahoo_ticker_excluded_by_the_guard(tmp_path):
     output = run(options(tmp_path))
-    row = output.result.universe.set_index("tv_ticker").loc["ZSE:TEST"]
+    row = output.result.universe.set_index("tv_ticker").loc["LS:TEST"]
     assert row["yahoo_mapping"] == "fail" and not row["eligible"]
     assert row["first_failed_rule"] == "yahoo_mapping"
-    assert row["reason_yahoo_mapping"] == "no verified Yahoo mapping for exchange ZSE"
+    assert row["reason_yahoo_mapping"] == "no verified Yahoo mapping for exchange LS"
     text = output.report.read_text(encoding="utf-8")
-    assert "| Yahoo ticker available | 2 | 2 | 0 |" in text      # NGM:FFF and ZSE:TEST
+    assert "| Yahoo ticker available | 2 | 2 | 0 |" in text      # GETTEX:FFF and LS:TEST
 
 
 def test_output_option(tmp_path):

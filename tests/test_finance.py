@@ -1,11 +1,12 @@
-"""Tests of engine/finance.py: denominators, splits and percentile ranks."""
+"""Tests of engine/finance.py: denominators, splits, least-squares slope and percentile ranks."""
 
 import math
 
 import pandas as pd
 import pytest
 
-from investment_agent.engine.finance import adjust_for_splits, percentile_rank, safe_ratio
+from investment_agent.engine.finance import (
+    adjust_for_splits, least_squares_slope, percentile_rank, safe_ratio)
 
 D_Y2 = "2023-12-31"
 D_Y = "2025-12-31"
@@ -101,3 +102,18 @@ def test_missing_value_ignored():
 def test_unknown_direction():
     with pytest.raises(ValueError):
         percentile_rank(pd.Series([1.0]), "middle")
+
+
+# --- least_squares_slope ---------------------------------------------------------------
+
+def test_least_squares_slope():
+    assert least_squares_slope([1, 2, 3, 4]) == pytest.approx(1.0)
+    assert least_squares_slope([4, 3, 2, 1]) == pytest.approx(-1.0)
+    assert least_squares_slope([2, 2, 2, 2]) == 0.0
+    assert least_squares_slope([4.5, 5.0, 5.5, 6.25]) == pytest.approx(0.575)
+
+
+def test_least_squares_slope_needs_numbers():
+    assert least_squares_slope([1.0]) is None
+    assert least_squares_slope([1.0, None, 3.0]) is None
+    assert least_squares_slope([1.0, float("nan"), 3.0]) is None

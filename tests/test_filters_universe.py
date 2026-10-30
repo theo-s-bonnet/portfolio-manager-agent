@@ -128,15 +128,21 @@ def test_london_gbp_and_gbx():
     assert status(df, "R3.2") == "fail"
 
 
-# --- PEA universe (R3.1 headquarters, ISIN warning) and preferred shares (R3.4) -------------
+# --- PEA universe (R3.1: broker markets, headquarters, ISIN prefix) and preferred shares (R3.4) ---
 
-def isin_warnings(df, i=0):
-    return [text for category, text in df["warnings"].iloc[i] if category.startswith("Statutory country")]
+def test_universe_markets_are_the_broker_markets():
+    assert U["markets"] == ["france", "belgium", "netherlands", "portugal", "germany", "italy", "spain"]
+
+
+def test_eea_market_outside_the_broker_markets():
+    df = tv(tv_stock(tv_ticker="OSL:TEST", market="norway", exchange="OSL", currency="NOK",
+                     reporting_currency="NOK", country="Norway", isin="NO0010096985"))
+    assert status(df, "R3.1") == "fail"
+    assert df["reason_R3.1"].iloc[0] == "market norway outside the universe"
 
 
 def test_headquarters_outside_the_eu_eea():
-    df = tv(tv_stock(tv_ticker="OSL:TEST", market="norway", exchange="OSL", currency="NOK",
-                     reporting_currency="NOK", country="Bermuda"))
+    df = tv(tv_stock(tv_ticker="MIL:TEST", market="italy", exchange="MIL", country="Bermuda"))
     assert status(df, "R3.1") == "fail"
     assert df["reason_R3.1"].iloc[0] == "headquarters country Bermuda outside the EU/EEA"
 
@@ -148,13 +154,14 @@ def test_headquarters_country_missing():
 
 
 def test_aland_islands_kept():
-    df = tv(tv_stock(tv_ticker="OMXHEX:TEST", market="finland", exchange="OMXHEX", country="Aland Islands"))
+    df = tv(tv_stock(country="Aland Islands", isin="FI0009000001"))
     assert status(df, "R3.1") == "pass"
 
 
 def test_faroe_islands_excluded():
-    df = tv(tv_stock(tv_ticker="OMXCOP:TEST", market="denmark", exchange="OMXCOP", country="Faroe Islands"))
+    df = tv(tv_stock(country="Faroe Islands", isin="DK0010000001"))
     assert status(df, "R3.1") == "fail"
+    assert df["reason_R3.1"].iloc[0] == "headquarters country Faroe Islands outside the EU/EEA"
 
 
 def test_market_outside_the_pea_universe():
@@ -163,18 +170,46 @@ def test_market_outside_the_pea_universe():
     assert df["reason_R3.1"].iloc[0] == "market uk outside the universe"
 
 
-def test_isin_prefix_outside_the_eu_eea_warns_only():
-    df = tv(tv_stock(tv_ticker="OSL:TEST", market="norway", exchange="OSL", currency="NOK",
-                     reporting_currency="NOK", market_cap=5e9, country="Norway", isin="BMG0670A1099"))
-    assert [status(df, r) for r in ("R3.1", "R3.2", "R3.3", "R3.4", "R3.5")] == ["pass"] * 5
-    assert isin_warnings(df) == ["ISIN BMG0670A1099, headquarters Norway"]
+def test_isin_prefix_outside_the_eu_eea():
+    df = tv(tv_stock(tv_ticker="EURONEXT:TEST", market="france", exchange="EURONEXT", country="France",
+                     isin="BMG0670A1099"))
+    assert status(df, "R3.1") == "fail"
+    assert df["reason_R3.1"].iloc[0] == "ISIN BMG0670A1099: prefix outside the EU/EEA"
 
 
-def test_legacy_czech_isin_prefix_accepted():
-    df = tv(tv_stock(tv_ticker="PSECZ:TEST", market="czech", exchange="PSECZ", currency="CZK",
-                     reporting_currency="CZK", country="Czech Republic", isin="CS0008418869"))
-    assert isin_warnings(df) == []
-    assert "NO" in CFG["technical"]["eu_eea_isin_prefixes"]       # not read as a YAML boolean
+def test_headquarters_and_isin_both_required():
+    # EU/EEA ISIN, headquarters outside: fail on the country; both outside: the country comes first
+    df = tv(tv_stock(country="United Kingdom", isin="LU0075646355"),
+            tv_stock(country="Bermuda", isin="BMG0670A1099"))
+    assert df["R3.1"].tolist() == ["fail", "fail"]
+    assert df["reason_R3.1"].tolist() == ["headquarters country United Kingdom outside the EU/EEA",
+                                          "headquarters country Bermuda outside the EU/EEA"]
+
+
+def test_isin_missing():
+    for isin in (None, float("nan"), "  "):
+        df = tv(tv_stock(isin=isin))
+        assert status(df, "R3.1") == "missing"
+        assert df["reason_R3.1"].iloc[0] == "missing: ISIN"
+
+
+def test_isin_failure_wins_over_missing_data():
+    df = tv(tv_stock(primary=None, isin="KYG000000001"))
+    assert status(df, "R3.1") == "fail"
+
+
+def test_legacy_czech_and_norwegian_isin_prefixes_accepted():
+    df = tv(tv_stock(country="Czech Republic", isin="CS0008418869"),
+            tv_stock(country="Norway", isin="NO0010096985"),
+            tv_stock(isin="de000test0001"))
+    assert df["R3.1"].tolist() == ["pass"] * 3
+    assert "NO" in U["eu_eea_isin_prefixes"]                    # not read as a YAML boolean
+
+
+def test_no_isin_warning_any_more():
+    df = tv(tv_stock(isin="BMG0670A1099"), tv_stock())
+    categories = [category for items in df["warnings"] for category, _ in items]
+    assert not [c for c in categories if "ISIN" in c]
 
 
 def test_german_preference_shares_kept():

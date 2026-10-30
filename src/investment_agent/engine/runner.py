@@ -5,7 +5,7 @@
    exchange rates (Yahoo), then every strategy rule, evaluated for every stock.
 3. Engine data guard `yahoo_mapping`: a verified Yahoo ticker exists for the exchange.
 4. Score of the eligible stocks.
-5. Markdown report and detail CSV.
+5. Markdown report and detail CSV (with the score and rank of the eligible stocks).
 
 The engine knows no rule: it calls the interface of the strategy module.
 Sources are injectable (Options.source_*) for tests without network access.
@@ -113,6 +113,13 @@ def _no_mapping(df: pd.DataFrame, first_step: str) -> list[str]:
             for exchange in sorted(counts, key=lambda b: (-counts[b], str(b)))]
 
 
+def with_ranking(df: pd.DataFrame, ranking: pd.DataFrame) -> pd.DataFrame:
+    """Universe with the columns added by the score (percentiles, score, rank) for the detail
+    CSV; empty for the stocks that are not eligible."""
+    added = [c for c in ranking.columns if c not in df.columns]
+    return df.join(ranking[added]) if added else df
+
+
 def run(options: Options | None = None) -> RunOutput:
     options = options or Options()
     start, clock = dt.datetime.now(), time.monotonic()
@@ -167,6 +174,6 @@ def run(options: Options | None = None) -> RunOutput:
     }
     text = render_report(result, cfg, meta)
     report = write_report(text, folder, date, options.strategy)
-    detail = write_detail(df, folder)
+    detail = write_detail(with_ranking(df, ranking), folder)
     log.info("Report: %s", report)
     return RunOutput(report=report, detail=detail, n_eligible=len(ranking), result=result)

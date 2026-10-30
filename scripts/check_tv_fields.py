@@ -1,4 +1,4 @@
-"""Checks the TradingView fields used by the screener on the EU/EEA markets.
+"""Checks the TradingView fields used by the screener on the markets of the universe.
 
 Usage (network required):
     python scripts/check_tv_fields.py
@@ -9,11 +9,12 @@ The script:
    `isin` and `first_bar_time` are accepted by the scan endpoint without being listed in the
    metadata;
 2. prints, for a few reference stocks queried on their own market (as the screener does), the
-   values of the fields, the ISIN, the date of the first bar and the market cap compared with
-   Yahoo (same currency expected);
+   values of the fields, the ISIN, the date of the first bar, the last 4 annual revenues and
+   diluted EPS (last closed fiscal year first) and the market cap compared with Yahoo (same
+   currency expected);
 3. for each market of the universe (primary listings, type stock): exchanges, `typespecs`
    values, headquarters countries missing from universe.hq_countries, ISIN prefixes missing
-   from technical.eu_eea_isin_prefixes, and stocks whose first bar is less than 6 months old.
+   from universe.eu_eea_isin_prefixes, and stocks whose first bar is less than 6 months old.
 
 This script is a one-off verification tool: it may contain candidate field names, which is
 forbidden in the rest of the code (the retained names go into config.yaml).
@@ -41,9 +42,9 @@ REFERENCE_STOCKS = [
     # (TV ticker, TV market, Yahoo ticker)
     ("XETR:SAP", "germany", "SAP.DE"),
     ("EURONEXT:TEP", "france", "TEP.PA"),
-    ("OSL:WAWI", "norway", "WAWI.OL"),
-    ("GPW:PGE", "poland", "PGE.WA"),
-    ("OMXSTO:KAR", "sweden", "KAR.ST"),
+    ("MIL:NWL", "italy", "NWL.MI"),
+    ("BME:CASH", "spain", "CASH.MC"),
+    ("EURONEXT:TMV", "france", "TMV.PA"),
 ]
 
 
@@ -93,6 +94,9 @@ def step_2() -> None:
         for name, field in FIELDS.items():
             print(f"    {name:22s} {row.get(field)}")
         print(f"    first bar              {first_bar(row.get(FIELDS['first_bar_time']))}")
+        for name in ("revenue_fy_h", "eps_fy_h"):
+            history = row.get(FIELDS[name])
+            print(f"    {name:22s} N to N-3: {list(history)[:4] if isinstance(history, list) else history}")
         info = yf.Ticker(yahoo).info
         cap_y, cap_tv = info.get("marketCap"), row.get(FIELDS["market_cap"])
         print(f"    Yahoo {yahoo}: currency={info.get('currency')} financialCurrency={info.get('financialCurrency')} "
@@ -103,7 +107,7 @@ def step_2() -> None:
 
 def step_3() -> None:
     print("\n=== 3. Markets of the universe ===")
-    countries, prefixes = set(CFG["universe"]["hq_countries"]), tuple(CFG["technical"]["eu_eea_isin_prefixes"])
+    countries, prefixes = set(CFG["universe"]["hq_countries"]), tuple(CFG["universe"]["eu_eea_isin_prefixes"])
     limit = pd.Timestamp(dt.date.today()) - pd.DateOffset(months=CFG["universe"]["price_history_months"])
     for market in CFG["universe"]["markets"]:
         _, df = (Query().set_markets(market)

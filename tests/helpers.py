@@ -32,7 +32,10 @@ def tv_stock(**changes) -> dict:
         "market_cap": 1.0e9, "price": 50.0,
         "avg_volume_3m": 100_000.0, "pe_ttm": 8.0, "eps_ttm": 6.25, "roe_ttm": 20.0,
         "shareholders_equity": 5.0e8,
-        "revenue_cagr_5y": 10.0, "net_debt": 100.0, "ebitda_ttm": 200.0,
+        "revenue_cagr_5y": 10.0,
+        "revenue_fy_h": [1.331e9, 1.21e9, 1.1e9, 1.0e9, 0.9e9],     # 3-year CAGR 10%
+        "eps_fy_h": [6.25, 5.5, 5.0, 4.5, 4.0],                     # 3-year EPS growth 10.82%
+        "net_debt": 100.0, "ebitda_ttm": 200.0,
         "net_income_ttm": 1.0e8, "ema": 45.0, "perf_6m": 15.0,
         "first_bar_time": unix_time("2015-01-02"),
     }
@@ -69,20 +72,21 @@ def fake_result(stocks: list[dict], cfg: dict | None = None):
 
 
 def three_stocks() -> list[dict]:
-    """Stocks of the reference report: two eligible stocks (ROE fallback and ISIN prefix outside
-    the EU/EEA for the first one, P/E fallback for the second one), one excluded by a data guard
-    because its ROE is missing and cannot be computed (negative equity)."""
+    """Stocks of the reference report: two eligible stocks (ROE fallback for the first one, P/E
+    fallback for the second one), one excluded by a data guard because its ROE is missing and
+    cannot be computed (negative equity)."""
     nan = float("nan")
     return [
         tv_stock(tv_ticker="EURONEXT:AAA", yahoo_ticker="AAA.PA", market="france", exchange="EURONEXT",
-                 country="France", isin="BMG000TEST01", name="Alpha SA", perf_6m=25.0, pe_ttm=6.0,
+                 country="France", isin="FR000TEST0A1", name="Alpha SA", perf_6m=25.0, pe_ttm=6.0,
                  net_income_ttm=2e8, roe_ttm=nan, shareholders_equity=1.1e9, revenue_cagr_5y=8.0,
+                 eps_fy_h=[3.0, 2.9, 2.8, 2.7],
                  net_debt=50.0, ebitda_ttm=100.0),
-        tv_stock(tv_ticker="OSL:BBB", yahoo_ticker="BBB.OL", market="norway", exchange="OSL", country="Norway",
-                 isin="NO000TEST0B1", name="Bravo ASA", sector="Transportation", industry="Marine Shipping",
-                 currency="NOK", reporting_currency="NOK", market_cap=5.0e9, net_income_ttm=6e8, price=100.0,
+        tv_stock(tv_ticker="MIL:BBB", yahoo_ticker="BBB.MI", market="italy", exchange="MIL", country="Italy",
+                 isin="IT000TEST0B1", name="Bravo SpA", sector="Transportation", industry="Marine Shipping",
+                 market_cap=5.0e9, net_income_ttm=6e8, price=100.0,
                  avg_volume_3m=50_000.0, ema=90.0, perf_6m=40.0, pe_ttm=nan, roe_ttm=25.0,
-                 revenue_cagr_5y=12.0, net_debt=-20.0, ebitda_ttm=40.0),
+                 revenue_cagr_5y=12.0, eps_fy_h=[10.0, 8.0, 6.5, 5.0], net_debt=-20.0, ebitda_ttm=40.0),
         tv_stock(tv_ticker="XETR:CCC", yahoo_ticker="CCC.DE", name="Charlie AG", roe_ttm=float("nan"),
                  shareholders_equity=-1e8),
     ]

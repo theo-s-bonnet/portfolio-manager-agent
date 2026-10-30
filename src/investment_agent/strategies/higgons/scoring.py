@@ -14,12 +14,13 @@ from investment_agent.engine.finance import is_number, percentile_rank
 from investment_agent.engine.statuses import ELIGIBLE_COLUMN
 
 ROE_COLUMN = "roe_retained"                # TradingView ROE, or the fallback (filters.retained_roe)
+GROWTH_COLUMN = "eps_growth_3y"            # 3-year diluted EPS growth (filters.eps_growth)
 # Measure of each component: internal column of the universe DataFrame.
 COMPONENT_COLUMNS = {
     "momentum": "perf_6m",
     "value": "pe_retained",                # retained P/E (R4.1)
     "quality": ROE_COLUMN,
-    "growth": "revenue_cagr_5y",
+    "growth": GROWTH_COLUMN,
     "balance_sheet": "net_debt_ebitda",   # computed in code (R4.4)
 }
 PCT_PREFIX = "pct_"

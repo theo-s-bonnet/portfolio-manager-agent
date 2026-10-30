@@ -6,8 +6,9 @@
 
 A rule-based stock screener for European small and mid caps, inspired by the Higgons method:
 buy profitable, growing and cheap companies that the market is starting to re-rate. The
-universe is limited to stocks that can be held in a French PEA (equity savings plan): EU and
-EEA markets, headquarters in the EU or the EEA. One command downloads the universe, applies
+universe is limited to stocks that can be held and bought online in a French PEA (equity
+savings plan): seven markets (Euronext Paris, Brussels, Amsterdam and Lisbon, Xetra, Milan,
+Madrid), with a headquarters country and an ISIN prefix in the EU or the EEA. One command downloads the universe, applies
 every written rule, ranks the eligible stocks with a composite score and writes a Markdown
 report that explains every exclusion.
 
@@ -23,7 +24,7 @@ this release.
 
 ```mermaid
 flowchart LR
-    A[TradingView scanner<br/>one query per market,<br/>28 EU/EEA markets] --> B[Universe<br/>R3.1-R3.5]
+    A[TradingView scanner<br/>one query per market,<br/>7 euro-area markets] --> B[Universe<br/>R3.1-R3.5]
     B --> C[Selection criteria<br/>R4.1, R4.3-R4.6]
     C --> D[Data guards<br/>R3.6, R4.11, R4.12,<br/>Yahoo ticker]
     D --> E[Composite score<br/>percentile ranks]
@@ -31,8 +32,9 @@ flowchart LR
     Y[Yahoo Finance<br/>exchange rates only] -.-> B
 ```
 
-The TradingView scanner returns the whole universe (about 5,000 stocks) with TTM ratios, the
-EMA, the 6-month performance and the date of the first price, in one call per market. Every
+The TradingView scanner returns the whole universe (about 1,900 stocks) with TTM ratios, the
+annual revenue and EPS of the last closed fiscal years, the EMA, the 6-month performance and
+the date of the first price, in one call per market. Every
 rule is then evaluated for every stock, so the detail CSV shows how far each stock is from
 each threshold. Yahoo Finance only supplies the exchange rates used to convert market caps and
 traded values to euros.
@@ -47,7 +49,7 @@ three groups. The rules are counted in this order in the report.
 
 | Rule | Check |
 |---|---|
-| R3.1 | Listed on an EU or EEA market, headquarters country in the EU or the EEA, primary listing; OTC excluded |
+| R3.1 | Listed on one of the configured markets (France, Belgium, Netherlands, Portugal, Germany, Italy, Spain); headquarters country **and** ISIN prefix in the EU or the EEA; primary listing; OTC excluded |
 | R3.2 | Market cap between EUR 150M and EUR 10B |
 | R3.3 | Average traded value of at least EUR 100k per day (approximation: 90-day average volume x last price) |
 | R3.4 | Common stocks only: funds, ETFs, units (SPACs), REITs and depositary receipts excluded; preferred shares excluded except in Germany (non-voting shares, often the only listed line) |
@@ -58,7 +60,7 @@ three groups. The rules are counted in this order in the report.
 | Pillar | Rule | Check |
 |---|---|---|
 | Value | R4.1 | 0 < retained P/E <= 12 |
-| Growth | R4.3 | 5-year revenue CAGR >= 5% |
+| Growth | R4.3 | 5-year revenue CAGR >= 5% **and** 3-year revenue CAGR >= 0% |
 | Balance sheet | R4.4 | Net debt / EBITDA TTM < 3, computed in code from net debt and EBITDA |
 | Trend | R4.5 | Price > 102% of the 100-day EMA (the exit rule planned for later sits lower, to avoid round trips) |
 | Trend | R4.6 | Raw 6-month performance >= 0% |
@@ -69,13 +71,18 @@ increase is taken into account before it reaches the TTM EPS. If the TradingView
 missing, market cap / TTM net income is used alone, and the fallback is flagged. An EPS, net
 income or TradingView P/E <= 0 makes the P/E undefined: the stock fails R4.1.
 
+**3-year revenue CAGR.** Computed in code from the annual revenue of the last closed fiscal
+year N and of N-3: (revenue N / revenue N-3) ^ (1/3) - 1. The 5-year window starts from the
+2020 trough; the 3-year check rejects a revenue that has been falling for three years, typically
+a cyclical stock after its peak. A revenue of N <= 0 fails.
+
 **Data guards** (not strategy rules: they exclude stocks whose data is missing or inconsistent)
 
 | Guard | Check |
 |---|---|
 | R3.6 | At least 6 months of prices, checked on the date of the symbol's first TradingView bar |
-| R4.11 | Every measure of the score is available; nothing is ever assumed to be zero |
-| R4.12 | A ratio whose denominator is <= 0 makes the stock ineligible (EBITDA, EPS) |
+| R4.11 | Every measure of the score is available, and the annual revenue and EPS of the 4 fiscal years N-3 to N are all present; nothing is ever assumed to be zero |
+| R4.12 | A ratio whose denominator is <= 0 makes the stock ineligible (EBITDA, EPS, revenue of N-3, mean absolute EPS of N-3 to N) |
 | Yahoo ticker | The exchange has a verified Yahoo Finance mapping (kept for the planned agent tools; nothing is downloaded) |
 
 **Composite score.** Each eligible stock gets a percentile rank (0 = worst, 100 = best) among
@@ -86,12 +93,18 @@ the eligible stocks on five components, then a weighted average:
 | Momentum | 6-month performance (higher is better) | 30% |
 | Value | Retained P/E (lower is better) | 25% |
 | Quality | Retained ROE (higher is better) | 20% |
-| Growth | 5-year revenue CAGR (higher is better) | 15% |
+| Growth | 3-year diluted EPS growth (higher is better) | 15% |
 | Balance sheet | Net debt / EBITDA (lower is better) | 10% |
 
 The retained ROE is the TradingView ROE TTM, even when it is negative (ranked last and
 flagged). If it is missing, TTM net income / shareholders' equity of the last quarter is used
 and flagged; with equity <= 0 the ratio is not computed and the stock is excluded by R4.11.
+The EPS growth follows the method of the equity risk models (MSCI Barra): least-squares slope
+of the annual diluted EPS of N-3 to N against time, divided by the mean of their absolute
+values. Unlike a CAGR, it is defined when the EPS was negative (a turnaround counts as growth)
+and it uses the four years, so one exceptional year weighs less. Revenue can grow without
+creating value per share (acquisitions, prices, dilution); the EPS growth measures what the
+shareholder gets.
 Ranking stocks against each other removes the need for a benchmark index per country. Ties
 are broken by TradingView identifier, so the order is deterministic.
 
@@ -130,7 +143,7 @@ file: [`tests/expected/report_min.md`](tests/expected/report_min.md)).
 |---|---|---|---|
 | TradingView universe (2 markets) | 3 | — | — |
 | **Universe** |  |  |  |
-| R3.1 PEA universe: market, headquarters, primary listing | 3 | 0 | 0 |
+| R3.1 PEA universe: broker market, headquarters and ISIN in the EU/EEA, primary listing | 3 | 0 | 0 |
 | R3.2 market cap | 3 | 0 | 0 |
 | ... | | | |
 | **Selection criteria** |  |  |  |
@@ -138,17 +151,17 @@ file: [`tests/expected/report_min.md`](tests/expected/report_min.md)).
 | ... | | | |
 | **Data guards** |  |  |  |
 | R3.6 price history (first TradingView bar) | 3 | 0 | 0 |
-| R4.11 data needed by the score | 2 | 1 | 1 |
-| R4.12 EBITDA and EPS denominators | 2 | 0 | 0 |
+| R4.11 data needed by the score, annual histories | 2 | 1 | 1 |
+| R4.12 denominators: EBITDA, EPS, revenue N-3, mean absolute EPS | 2 | 0 | 0 |
 | Yahoo ticker available | 2 | 0 | 0 |
 | **Eligible** | **2** |  |  |
 
 **Ranking** (raw value, then percentile rank among eligible stocks in parentheses)
 
-| # | Stock | Name | Country | Sector | Score | Perf 6M | P/E | ROE | Rev. CAGR 5y | ND/EBITDA |
+| # | Stock | Name | Country | Sector | Score | Perf 6M | P/E | ROE | EPS growth 3y | ND/EBITDA |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 1 | OSL:BBB (BBB.OL) | Bravo ASA | Norway | Transportation | 75.0 | +40.0% (100) | 8.3† (0) | 25.0% (100) | 12.0% (100) | −0.5 (100) |
-| 2 | EURONEXT:AAA (AAA.PA) | Alpha SA | France | Producer Manufacturing | 25.0 | +25.0% (0) | 6.0 (100) | 18.2%‡ (0) | 8.0% (0) | 0.5 (0) |
+| 1 | MIL:BBB (BBB.MI) | Bravo SpA | Italy | Transportation | 75.0 | +40.0% (100) | 8.3† (0) | 25.0% (100) | 22.4% (100) | −0.5 (100) |
+| 2 | EURONEXT:AAA (AAA.PA) | Alpha SA | France | Producer Manufacturing | 25.0 | +25.0% (0) | 6.0 (100) | 18.2%‡ (0) | 3.5% (0) | 0.5 (0) |
 
 † fallback: market cap / TTM net income (TradingView P/E missing)<br>
 ‡ fallback: TTM net income / shareholders' equity of the last quarter (TradingView ROE missing)
@@ -159,8 +172,8 @@ file: [`tests/expected/report_min.md`](tests/expected/report_min.md)).
 |---|---|---|
 | XETR:CCC (CCC.DE) | R4.11 | ROE missing; fallback not computed: shareholders' equity -100,000,000 ≤ 0 |
 
-**Warnings** (excerpt): *Statutory country (ISIN prefix) outside the EU/EEA: check PEA
-eligibility*: EURONEXT:AAA, ISIN BMG000TEST01, headquarters France.
+**Warnings** (excerpt): *Retained P/E: fallback to market cap / TTM net income (TradingView
+P/E missing)*: MIL:BBB, retained P/E 8.33.
 
 The full report also lists the other warnings (TradingView markets in error, missing exchange
 rates, exchanges without a Yahoo mapping, fallbacks, ROE <= 0), the eligible stocks by
@@ -201,16 +214,17 @@ Outputs go to `data/` (not tracked by Git):
 - `data/reports/YYYY-MM-DD_higgons.md`: funnel by group and rule, ranking, exclusions for
   missing data, warnings, rules not applied;
 - `data/reports/latest_run_detail.csv`: one row per stock of the universe with the raw data,
-  the derived values (retained P/E and ROE with their source, first bar date...) and the
-  status and reason of every rule; standard CSV (comma, decimal point, UTF-8), overwritten on
+  the derived values (retained P/E and ROE with their source, first bar date, annual revenue
+  and EPS of N to N-3, 3-year revenue CAGR and EPS growth...), the status and reason of every
+  rule, and the percentiles, score and rank of the eligible stocks; standard CSV (comma, decimal point, UTF-8), overwritten on
   every run.
 
 ## Tests
 
 ```bash
-pytest               # unit tests, no network (171 tests)
+pytest               # unit tests, no network (208 tests)
 pytest -m network    # one real call per source (TradingView, Yahoo)
-python scripts/check_tv_fields.py   # checks the TradingView fields on the EU/EEA markets (network)
+python scripts/check_tv_fields.py   # checks the TradingView fields on the markets of the universe (network)
 ```
 
 CI runs the unit tests on Ubuntu with Python 3.10 and the latest stable Python.
@@ -222,7 +236,7 @@ src/investment_agent/
 ├── __main__.py               command line: python -m investment_agent run
 ├── engine/                   no strategy rule in here
 │   ├── config.py             loading and generic validation of a strategy configuration
-│   ├── finance.py            safe ratios, split adjustment, percentile ranks
+│   ├── finance.py            safe ratios, split adjustment, least-squares slope, percentile ranks
 │   ├── statuses.py           pass / fail / missing, eligibility, first failed rule
 │   ├── runner.py             orchestration of a run, Yahoo ticker guard
 │   ├── report.py             Markdown report and detail CSV
@@ -230,7 +244,7 @@ src/investment_agent/
 │                             yahoo.py (prices and statements, kept for the planned agent tools)
 └── strategies/higgons/       one strategy = one folder, no network call
     ├── config.yaml           thresholds, weights, field names, data-quality parameters, rule register
-    ├── filters.py            one pure function per rule, retained P/E and ROE, warnings
+    ├── filters.py            one pure function per rule, retained P/E and ROE, 3-year growth, warnings
     └── scoring.py            composite score
 scripts/check_tv_fields.py    one-off check of the TradingView fields
 tests/                        unit tests, fake data (helpers.py), expected report
@@ -246,12 +260,19 @@ tests/                        unit tests, fake data (helpers.py), expected repor
 - Both sources are meant for personal research; check their terms of use before any other use.
 - The TradingView `country` field is the declared headquarters, often the operational seat,
   not always the country of incorporation that decides PEA eligibility (a company incorporated
-  in Bermuda can have its head office in Norway). The report warns when the ISIN prefix is
-  outside the EU/EEA; final eligibility has to be confirmed with the broker.
+  in Bermuda can have its head office in Norway). The ISIN prefix usually gives the country of
+  incorporation, but it can stay the one of a former seat after a transfer. Neither is reliable
+  on its own, so R3.1 requires both; final eligibility has to be confirmed with the broker.
+- The list of markets follows the broker: a market where online orders are not accepted is
+  left out even if it is in the EU or the EEA. It is a configuration setting.
 - A ticker change resets the date of the first TradingView bar: the stock is then excluded by
   R3.6 for six months, consistently with its 6-month performance and EMA, which TradingView
   computes on the short history.
-- TradingView provides no 3-year revenue CAGR: growth is measured over 5 years.
+- TradingView provides no 3-year revenue CAGR: it is computed from the annual revenue of the
+  last closed fiscal years (`total_revenue_fy_h`), each company with its own fiscal year. The
+  EPS growth uses the annual diluted EPS (`earnings_per_share_diluted_fy_h`), never quarters:
+  it can lag the latest results by up to a year, and a profit inflated by an exceptional item
+  is not detected by the score.
 - Exchanges without a verified Yahoo mapping are excluded and counted in the report: NGM (the
   Yahoo listing has a different price), BER, LJSE, ZSE, CSECY, BSESOF, BSSE, GETTEX, LS, LSX
   and TRADEGATE.
@@ -265,7 +286,8 @@ tests/                        unit tests, fake data (helpers.py), expected repor
 | Version | Content | Status |
 |---|---|---|
 | V1 | Screener: universe, eligibility filters, composite score, Markdown report | Done |
-| V1.1 | Strategy 2.0: PEA universe, retained P/E and ROE, criteria and data guards reported separately, single TradingView stage | Done (this release) |
+| V1.1 | Strategy 2.0: PEA universe, retained P/E and ROE, criteria and data guards reported separately, single TradingView stage | Done |
+| V1.2 | Strategy 2.1: markets of the broker, ISIN prefix, 3-year revenue CAGR, growth score on the 3-year EPS growth | Done (this release) |
 | V2 | First LLM agent: calls the screener as a tool and writes a standardized analysis sheet for the top candidates (red flags, dominant risk factor, debt trajectory, sources); all calculations stay in the tools | Planned |
 | V3 | Positions and exit rules (technical, valuation, eligibility, dilution), trade journal | Planned |
 | V4 | Scheduled weekly run, report delivered without intervention | Planned |
