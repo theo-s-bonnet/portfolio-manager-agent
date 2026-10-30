@@ -38,6 +38,8 @@ universe:
 filters:
   pe_max: 12                                      # retained P/E
   revenue_cagr_5y_min_pct: 5
+  revenue_cagr_3y_min_pct: 0                      # computed in code from the annual revenue
+  growth_years: 3                                 # fiscal years from N-3 to N (3-year revenue CAGR, EPS growth)
   net_debt_ebitda_max: 3
   ema_period: 100
   ema_entry_pct: 102                              # entry above the EMA, exit lower: avoids round trips
@@ -67,6 +69,8 @@ tradingview_fields:                               # checked against the scanner 
   roe_ttm: return_on_equity
   shareholders_equity: shrhldrs_equity_fq         # last quarter, attributable to shareholders (ROE fallback)
   revenue_cagr_5y: total_revenue_cagr_5y
+  revenue_fy_h: total_revenue_fy_h                # annual revenue, last closed fiscal year first
+  eps_fy_h: earnings_per_share_diluted_fy_h       # annual diluted EPS, last closed fiscal year first
   net_debt: net_debt
   ebitda_ttm: ebitda
   net_income_ttm: net_income_ttm

@@ -15,14 +15,14 @@ Sources: TradingView (delayed data). Exchange rates: last Yahoo Finance close av
 | R3.5 banks and insurers excluded | 3 | 0 | 0 |
 | **Selection criteria** |  |  |  |
 | R4.1 retained P/E | 3 | 0 | 0 |
-| R4.3 5-year revenue growth | 3 | 0 | 0 |
+| R4.3 revenue growth over 5 and 3 years | 3 | 0 | 0 |
 | R4.4 net debt / EBITDA | 3 | 0 | 0 |
 | R4.5 price above the EMA | 3 | 0 | 0 |
 | R4.6 6-month performance | 3 | 0 | 0 |
 | **Data guards** |  |  |  |
 | R3.6 price history (first TradingView bar) | 3 | 0 | 0 |
-| R4.11 data needed by the score | 2 | 1 | 1 |
-| R4.12 EBITDA and EPS denominators | 2 | 0 | 0 |
+| R4.11 data needed by the score, annual histories | 2 | 1 | 1 |
+| R4.12 denominators: EBITDA, EPS, revenue N-3, mean absolute EPS | 2 | 0 | 0 |
 | Yahoo ticker available | 2 | 0 | 0 |
 | **Eligible** | **2** |  |  |
 

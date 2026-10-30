@@ -115,3 +115,21 @@ def test_real_config_loads():
     cfg = load_config(CONFIG_PATH, REQUIRED_KEYS)
     assert cfg["strategy"] == "higgons"
     assert set(cfg["score"]["weights"]) == set(cfg["score"]["direction"])
+
+
+def test_strategy_2_1_configuration():
+    from investment_agent.strategies.higgons import CONFIG_PATH, REQUIRED_KEYS
+
+    cfg = load_config(CONFIG_PATH, REQUIRED_KEYS)
+    assert (cfg["strategy_version"], cfg["config_version"]) == ("2.1", "2.1.0")
+    assert cfg["filters"]["revenue_cagr_3y_min_pct"] == 0
+    assert cfg["filters"]["growth_years"] == 3
+    fields = cfg["tradingview_fields"]
+    assert fields["revenue_fy_h"] == "total_revenue_fy_h"
+    assert fields["eps_fy_h"] == "earnings_per_share_diluted_fy_h"
+    assert "eu_eea_isin_prefixes" in cfg["universe"] and "eu_eea_isin_prefixes" not in cfg["technical"]
+    for key in ("revenue_cagr_3y_min_pct", "growth_years"):
+        broken = copy.deepcopy(cfg)
+        del broken["filters"][key]
+        with pytest.raises(InvalidConfig, match=f"filters.{key}"):
+            validate_config(broken, REQUIRED_KEYS)

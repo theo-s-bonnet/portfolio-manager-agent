@@ -2,12 +2,14 @@
 
 - safe_ratio: ratio whose denominator is checked (a denominator <= 0 gives no ratio);
 - adjust_for_splits: makes two share counts separated by a split comparable;
+- least_squares_slope: slope of the ordinary least-squares line of a series against time;
 - percentile_rank: 0-100 percentile rank among the values provided.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from typing import Any
 
 import pandas as pd
@@ -78,6 +80,21 @@ def adjust_for_splits(
     adjusted = abs(ln_q - math.log(r)) < abs(ln_q)
     warning = f"split detected (ratio {r:g}, adjusted: {'yes' if adjusted else 'no'})"
     return (n_old * r if adjusted else n_old), warning
+
+
+def least_squares_slope(values: Sequence[Any]) -> float | None:
+    """Slope of the ordinary least-squares line of `values` against the times 0, 1, ..., n - 1.
+
+    None if fewer than two values or if a value is not a number (never a 0 assumed).
+    """
+    if len(values) < 2 or not all(is_number(v) for v in values):
+        return None
+    ys = [float(v) for v in values]
+    ts = range(len(ys))
+    t_mean, y_mean = sum(ts) / len(ys), sum(ys) / len(ys)
+    numerator = sum((t - t_mean) * (y - y_mean) for t, y in zip(ts, ys))
+    denominator = sum((t - t_mean) * (t - t_mean) for t in ts)
+    return numerator / denominator
 
 
 def percentile_rank(series: pd.Series, direction: str) -> pd.Series:

@@ -32,7 +32,10 @@ def tv_stock(**changes) -> dict:
         "market_cap": 1.0e9, "price": 50.0,
         "avg_volume_3m": 100_000.0, "pe_ttm": 8.0, "eps_ttm": 6.25, "roe_ttm": 20.0,
         "shareholders_equity": 5.0e8,
-        "revenue_cagr_5y": 10.0, "net_debt": 100.0, "ebitda_ttm": 200.0,
+        "revenue_cagr_5y": 10.0,
+        "revenue_fy_h": [1.331e9, 1.21e9, 1.1e9, 1.0e9, 0.9e9],     # 3-year CAGR 10%
+        "eps_fy_h": [6.25, 5.5, 5.0, 4.5, 4.0],                     # 3-year EPS growth 10.82%
+        "net_debt": 100.0, "ebitda_ttm": 200.0,
         "net_income_ttm": 1.0e8, "ema": 45.0, "perf_6m": 15.0,
         "first_bar_time": unix_time("2015-01-02"),
     }

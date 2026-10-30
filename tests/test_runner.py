@@ -93,6 +93,10 @@ def test_complete_run_without_intervention(tmp_path):
     detail = pd.read_csv(output.detail)
     assert len(detail) == 6
     assert {"first_bar_time", "first_bar_date", "yahoo_mapping", "reason_yahoo_mapping"} <= set(detail.columns)
+    history = [f"{name}_fy_{k}" for name in ("revenue", "eps") for k in range(4)]
+    assert {*history, "revenue_cagr_3y", "eps_growth_3y"} <= set(detail.columns)
+    assert "revenue_fy_h" not in detail and "eps_fy_h" not in detail
+    assert detail.set_index("tv_ticker").loc["XETR:AAA", "eps_fy_3"] == 4.5
     assert not [c for c in detail.columns if c.startswith("yf_") or c == "yahoo_match"]
 
     text = output.report.read_text(encoding="utf-8")

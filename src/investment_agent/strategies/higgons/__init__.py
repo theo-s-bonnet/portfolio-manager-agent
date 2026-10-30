@@ -27,14 +27,16 @@ REQUIRED_KEYS: dict[str, list[str]] = {
         "price_history_months",
     ],
     "filters": [
-        "pe_max", "revenue_cagr_5y_min_pct", "net_debt_ebitda_max", "ema_period", "ema_entry_pct",
+        "pe_max", "revenue_cagr_5y_min_pct", "revenue_cagr_3y_min_pct", "growth_years",
+        "net_debt_ebitda_max", "ema_period", "ema_entry_pct",
         "perf_6m_min_pct",
     ],
     "score": ["weights", "direction"],
     "tradingview_fields": [
         "type", "subtype", "primary", "exchange", "country", "isin", "name", "sector", "industry",
         "currency", "reporting_currency", "market_cap", "price", "avg_volume_3m", "pe_ttm",
-        "eps_ttm", "roe_ttm", "shareholders_equity", "revenue_cagr_5y", "net_debt", "ebitda_ttm",
+        "eps_ttm", "roe_ttm", "shareholders_equity", "revenue_cagr_5y", "revenue_fy_h", "eps_fy_h",
+        "net_debt", "ebitda_ttm",
         "net_income_ttm", "ema", "perf_6m", "first_bar_time",
     ],
     "technical": [
@@ -59,15 +61,15 @@ FUNNEL: list[tuple[str, list[tuple[str, str]]]] = [
     ]),
     ("Selection criteria", [
         ("R4.1", "R4.1 retained P/E"),
-        ("R4.3", "R4.3 5-year revenue growth"),
+        ("R4.3", "R4.3 revenue growth over 5 and 3 years"),
         ("R4.4", "R4.4 net debt / EBITDA"),
         ("R4.5", "R4.5 price above the EMA"),
         ("R4.6", "R4.6 6-month performance"),
     ]),
     ("Data guards", [
         ("R3.6", "R3.6 price history (first TradingView bar)"),
-        ("R4.11", "R4.11 data needed by the score"),
-        ("R4.12", "R4.12 EBITDA and EPS denominators"),
+        ("R4.11", "R4.11 data needed by the score, annual histories"),
+        ("R4.12", "R4.12 denominators: EBITDA, EPS, revenue N-3, mean absolute EPS"),
         (MAPPING_COLUMN, MAPPING_LABEL),
     ]),
 ]

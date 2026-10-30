@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from investment_agent.engine.data.fx import to_eur
-from investment_agent.engine.finance import is_number, safe_ratio
+from investment_agent.engine.finance import is_number, least_squares_slope, safe_ratio
 from investment_agent.engine.statuses import FAIL, MISSING, PASS, WARNINGS_COLUMN, reason_column
 from investment_agent.strategies.higgons.scoring import COMPONENT_COLUMNS, ROE_COLUMN
 
@@ -147,10 +147,84 @@ def retained_roe(roe_ttm, net_income_ttm, shareholders_equity):
     return None, None, None
 
 
-def add_derived_columns(df: pd.DataFrame, rates: dict[str, float], tol: float) -> pd.DataFrame:
+# Annual histories (TradingView `*_fy_h` fields: one value per closed fiscal year, the last
+# closed fiscal year first). Element 0 is year N, element k is year N-k.
+REVENUE_HISTORY, EPS_HISTORY = "revenue_fy_h", "eps_fy_h"
+REVENUE_CAGR_3Y, EPS_GROWTH_3Y = "revenue_cagr_3y", "eps_growth_3y"
+# Why a 3-year growth measure is not computed.
+HISTORY_MISSING = "history_missing"            # fewer than growth_years + 1 values, or one missing (R4.11)
+DENOMINATOR = "denominator"                    # revenue of N-3 <= 0, or mean |EPS| = 0 (R4.12)
+REVENUE_N_NOT_POSITIVE = "revenue_n_not_positive"   # revenue of N <= 0, revenue of N-3 > 0 (R4.3 fails)
+
+
+def growth_years(cfg: dict) -> int:
+    """Number of fiscal years between N-3 and N (filters.growth_years), a positive integer."""
+    years = cfg["filters"]["growth_years"]
+    if isinstance(years, bool) or not isinstance(years, int) or years < 1:
+        raise ValueError(f"filters.growth_years must be a positive integer, not {years!r}")
+    return years
+
+
+def history_columns(history: str, years: int) -> list[str]:
+    """Columns of the values N, N-1, ..., N-years of an annual history: revenue_fy_0 ... _3."""
+    prefix = history.removesuffix("_h")
+    return [f"{prefix}_{k}" for k in range(years + 1)]
+
+
+def year_label(k: int) -> str:
+    return f"N-{k}" if k else "N"
+
+
+def history_values(x, years: int) -> list[float | None]:
+    """Values N, N-1, ..., N-years of a TradingView annual history (list, last closed fiscal year
+    first); None for an absent value, every value None if the field is not a list."""
+    values = list(x) if isinstance(x, (list, tuple, np.ndarray)) else []
+    values = [_number(e) for e in values[:years + 1]]
+    return values + [None] * (years + 1 - len(values))
+
+
+def revenue_cagr(history, years: int, tol: float) -> tuple[float | None, str | None]:
+    """(CAGR in % per year, issue) from the annual revenue N, N-1, ..., N-years; pure function.
+
+    CAGR = (revenue of N / revenue of N-years) ^ (1 / years) - 1. Not computed (None, issue) if a
+    value is missing (HISTORY_MISSING), if the revenue of N-years is <= 0 (DENOMINATOR) or if
+    the revenue of N is <= 0 while N-years is > 0 (REVENUE_N_NOT_POSITIVE).
+    """
+    values = history_values(history, years)
+    if any(v is None for v in values):
+        return None, HISTORY_MISSING
+    last, first = values[0], values[years]
+    if _le(first, 0, tol):
+        return None, DENOMINATOR
+    if _le(last, 0, tol):
+        return None, REVENUE_N_NOT_POSITIVE
+    return ((last / first) ** (1 / years) - 1) * 100, None
+
+
+def eps_growth(history, years: int, tol: float) -> tuple[float | None, str | None]:
+    """(growth in % per year, issue) from the annual diluted EPS N, N-1, ..., N-years; pure function.
+
+    Least-squares slope of the EPS against the times 0, 1, ..., years (oldest year first),
+    divided by the mean of the absolute EPS values, x 100. Negative EPS are allowed (a
+    turnaround counts as growth). Not computed if a value is missing (HISTORY_MISSING) or if
+    the mean of the absolute values is 0 (DENOMINATOR).
+    """
+    values = history_values(history, years)
+    if any(v is None for v in values):
+        return None, HISTORY_MISSING
+    oldest_first = values[::-1]
+    mean_abs = sum(abs(v) for v in oldest_first) / len(oldest_first)
+    if _le(mean_abs, 0, tol):
+        return None, DENOMINATOR
+    return least_squares_slope(oldest_first) / mean_abs * 100, None
+
+
+def add_derived_columns(df: pd.DataFrame, rates: dict[str, float], tol: float, years: int) -> pd.DataFrame:
     """Adds market_cap_eur (R3.2), liquidity_eur (R3.3), net_debt_ebitda (R4.4),
-    first_bar_date (R3.6), the retained P/E (R4.1: pe_calc, pe_retained, pe_source) and the
-    retained ROE (score: roe_calc, roe_retained, roe_source).
+    first_bar_date (R3.6), the retained P/E (R4.1: pe_calc, pe_retained, pe_source), the
+    retained ROE (score: roe_calc, roe_retained, roe_source), the annual values N to N-years
+    (revenue_fy_0..., eps_fy_0...), the 3-year revenue CAGR (R4.3) and the 3-year EPS growth
+    (score). The raw history lists are replaced by their values N to N-years.
 
     The market cap is converted with the currency of the amounts (`reporting_currency`), the
     liquidity (average volume x last price) with the price currency (`currency`): in London
@@ -184,7 +258,14 @@ def add_derived_columns(df: pd.DataFrame, rates: dict[str, float], tol: float) -
     df["roe_calc"] = pd.Series([calc for calc, _, _ in roe], index=df.index, dtype="float64")
     df["roe_retained"] = pd.Series([roe_ for _, roe_, _ in roe], index=df.index, dtype="float64")
     df["roe_source"] = pd.Series([source for _, _, source in roe], index=df.index, dtype=object)
-    return df
+    for history, measure, function in ((REVENUE_HISTORY, REVENUE_CAGR_3Y, revenue_cagr),
+                                       (EPS_HISTORY, EPS_GROWTH_3Y, eps_growth)):
+        values = [history_values(x, years) for x in df[history]]
+        for k, column in enumerate(history_columns(history, years)):
+            df[column] = pd.Series([v[k] for v in values], index=df.index, dtype="float64")
+        df[measure] = pd.Series([function(v, years, tol)[0] for v in values], index=df.index,
+                                dtype="float64")
+    return df.drop(columns=[REVENUE_HISTORY, EPS_HISTORY])
 
 
 def _conversion_reason(v: dict, amount: str, currency: str, label: str) -> str:
@@ -402,10 +483,53 @@ def r4_1(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
     return _apply(df, rule)
 
 
-r4_3 = _simple_threshold("revenue_cagr_5y", "5-year revenue CAGR", ">=", "revenue_cagr_5y_min_pct", "%")
-r4_3.__doc__ = "5-year revenue CAGR >= revenue_cagr_5y_min_pct (annual rate, in %)."
 r4_6 = _simple_threshold("perf_6m", "6-month performance", ">=", "perf_6m_min_pct", "%")
 r4_6.__doc__ = "Raw 6-month performance >= perf_6m_min_pct (in %)."
+
+
+def _row_history(v: dict, history: str, years: int) -> list[float | None]:
+    return [_number(v.get(c)) for c in history_columns(history, years)]
+
+
+def r4_3(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
+    """Revenue growth, two conditions: 5-year CAGR (TradingView) >= revenue_cagr_5y_min_pct and
+    3-year CAGR (computed from the annual revenue) >= revenue_cagr_3y_min_pct, in % per year.
+
+    A revenue of N <= 0 (with N-3 > 0) fails. A 3-year CAGR that cannot be computed (history
+    incomplete: R4.11; revenue of N-3 <= 0: R4.12) does not block this rule: the data guard
+    excludes the stock. The failure reason shows both measures.
+    """
+    f, tol, years = cfg["filters"], _tol(cfg), growth_years(cfg)
+    min_5y, min_3y = f["revenue_cagr_5y_min_pct"], f["revenue_cagr_3y_min_pct"]
+    label_3y = f"{years}-year revenue CAGR"
+
+    def rule(v):
+        cagr_5y = _number(v.get("revenue_cagr_5y"))
+        history = _row_history(v, REVENUE_HISTORY, years)
+        cagr_3y, issue = revenue_cagr(history, years, tol)
+        fail_5y = cagr_5y is not None and not _ge(cagr_5y, min_5y, tol)
+        fail_3y = (cagr_3y is not None and not _ge(cagr_3y, min_3y, tol)) or issue == REVENUE_N_NOT_POSITIVE
+        if cagr_5y is None:
+            part_5y = "5-year revenue CAGR missing"
+        else:
+            part_5y = f"5-year revenue CAGR {_v(cagr_5y)}% {'<' if fail_5y else '≥'} {_v(min_5y)}%"
+        if cagr_3y is not None:
+            part_3y = f"{label_3y} {_v(cagr_3y)}% {'<' if fail_3y else '≥'} {_v(min_3y)}%"
+        elif issue == REVENUE_N_NOT_POSITIVE:
+            part_3y = f"{label_3y} undefined: revenue N {_v(history[0])} ≤ 0"
+        elif issue == DENOMINATOR:
+            part_3y = f"{label_3y} not computed: revenue {year_label(years)} ≤ 0 (R4.12)"
+        else:
+            part_3y = f"{label_3y} not computed: annual revenue missing (R4.11)"
+        if fail_5y or fail_3y:
+            return FAIL, f"{part_5y}; {part_3y}"
+        if cagr_5y is None:
+            return MISSING, part_5y
+        if issue is not None:
+            return PASS, part_3y
+        return PASS, ""
+
+    return _apply(df, rule)
 
 
 def r4_4(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
@@ -455,19 +579,34 @@ def _roe_missing_reason(v: dict) -> str:
     return "ROE missing; fallback not computed: shareholders' equity / TTM net income missing"
 
 
-def r4_11(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Data guard: every measure of the score is a number (R4.11 applied to the score).
+def _history_missing_reason(v: dict, history: str, years: int, label: str) -> str | None:
+    values = _row_history(v, history, years)
+    missing = [year_label(k) for k, x in enumerate(values) if x is None]
+    return f"annual {label} missing: {', '.join(missing)}" if missing else None
 
-    In practice the retained ROE is the only measure that no criterion checks: when it is
-    missing, the reason explains why the fallback was not computed (the other measures are
-    already reported by their criterion). A ROE <= 0 is a value (ranked as is).
+
+def r4_11(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
+    """Data guard: the measures of the score and the annual histories are available.
+
+    The retained ROE is the only score measure that no criterion checks: when it is missing,
+    the reason explains why the fallback was not computed. The annual revenue and diluted EPS
+    of N to N-3 must all be present (3-year revenue CAGR of R4.3, EPS growth of the score). The
+    other score measures are already reported by their criterion. A ROE <= 0 is a value; an EPS
+    growth not computed because the mean |EPS| is 0 is left to R4.12.
     """
+    years = growth_years(cfg)
     columns = [COMPONENT_COLUMNS[c] for c in cfg["score"]["weights"] if c in COMPONENT_COLUMNS]
+    others = [c for c in columns if c not in (ROE_COLUMN, EPS_GROWTH_3Y)]
 
     def rule(v):
-        missing = [c for c in columns if _number(v.get(c)) is None]
-        if ROE_COLUMN in missing:
-            return MISSING, _roe_missing_reason(v)
+        reasons = [_roe_missing_reason(v)] if _number(v.get(ROE_COLUMN)) is None else []
+        for history, label in ((REVENUE_HISTORY, "revenue"), (EPS_HISTORY, "diluted EPS")):
+            reason = _history_missing_reason(v, history, years, label)
+            if reason:
+                reasons.append(reason)
+        if reasons:
+            return MISSING, " ; ".join(reasons)
+        missing = [c for c in others if _number(v.get(c)) is None]
         if missing:
             return MISSING, f"score data missing: {', '.join(missing)}"
         if v.get("roe_source") == ROE_FALLBACK:
@@ -479,13 +618,25 @@ def r4_11(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
 
 
 def r4_12(df: pd.DataFrame, cfg: dict) -> tuple[pd.Series, pd.Series]:
-    """Data guard on the denominators: EBITDA TTM > 0 and EPS TTM > 0."""
-    tol = _tol(cfg)
+    """Data guard on the denominators: EBITDA TTM > 0, EPS TTM > 0, revenue of N-3 > 0 (3-year
+    revenue CAGR) and mean |EPS| of N-3 to N > 0 (EPS growth of the score).
+
+    The two historical denominators are checked only when the history is complete (otherwise
+    R4.11 reports the missing values).
+    """
+    tol, years = _tol(cfg), growth_years(cfg)
 
     def rule(v):
         ebitda, eps = _number(v.get("ebitda_ttm")), _number(v.get("eps_ttm"))
         negatives = [f"{name} {_v(x)} ≤ 0" for name, x in (("EBITDA", ebitda), ("EPS", eps))
                      if x is not None and _le(x, 0, tol)]
+        revenue = _row_history(v, REVENUE_HISTORY, years)
+        if revenue_cagr(revenue, years, tol)[1] == DENOMINATOR:
+            negatives.append(f"revenue {year_label(years)} {_v(revenue[years])} ≤ 0: "
+                             f"{years}-year revenue CAGR not computed")
+        eps_values = _row_history(v, EPS_HISTORY, years)
+        if eps_growth(eps_values, years, tol)[1] == DENOMINATOR:
+            negatives.append(f"mean absolute EPS of {year_label(years)} to N is 0: EPS growth not computed")
         if negatives:
             return FAIL, " ; ".join(negatives)
         if ebitda is None or eps is None:
@@ -559,7 +710,7 @@ def filter_tv(df: pd.DataFrame, cfg: dict, rates: dict[str, float], run_date: dt
     Every rule is evaluated for every stock. `rates`: exchange rates to the euro (R3.2, R3.3);
     `run_date`: date of the run (R3.6), so that the result is deterministic.
     """
-    df = add_derived_columns(df, rates, _tol(cfg))
+    df = add_derived_columns(df, rates, _tol(cfg), growth_years(cfg))
     for rule, function in {**UNIVERSE_RULES, **CRITERIA}.items():
         df[rule], df[reason_column(rule)] = function(df, cfg)
     df["R3.6"], df[reason_column("R3.6")] = r3_6(df, cfg, run_date)
