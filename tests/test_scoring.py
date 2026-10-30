@@ -14,8 +14,8 @@ WEIGHTS = CFG["score"]["weights"]
 
 
 def stocks(rows):
-    """rows: (tv_ticker, perf, retained pe, roe, cagr, nd/ebitda, eligible)."""
-    columns = ["tv_ticker", "perf_6m", "pe_retained", "roe_retained", "revenue_cagr_5y", "net_debt_ebitda", "eligible"]
+    """rows: (tv_ticker, perf, retained pe, roe, EPS growth, nd/ebitda, eligible)."""
+    columns = ["tv_ticker", "perf_6m", "pe_retained", "roe_retained", "eps_growth_3y", "net_debt_ebitda", "eligible"]
     return pd.DataFrame(rows, columns=columns)
 
 
@@ -86,6 +86,33 @@ def test_value_ranked_on_the_retained_pe():
     df["pe_ttm"] = [5.0, 6.0, 7.0]                 # TradingView P/E: would give the opposite order for A
     res = rank(df, CFG).set_index("tv_ticker")
     assert res["pct_value"].to_dict() == {"XETR:B": 100, "XETR:C": 50, "XETR:A": 0}
+
+
+def test_growth_ranked_on_the_3_year_eps_growth():
+    df = stocks([
+        ("XETR:A", 10, 8, 15, -20.0, 1.0, True),
+        ("XETR:B", 10, 8, 15, 40.0, 1.0, True),
+        ("XETR:C", 10, 8, 15, 5.0, 1.0, True),
+    ])
+    df["revenue_cagr_5y"] = [30.0, 5.0, 10.0]      # revenue growth: would give the opposite order
+    res = rank(df, CFG).set_index("tv_ticker")
+    assert res["pct_growth"].to_dict() == {"XETR:B": 100, "XETR:C": 50, "XETR:A": 0}
+
+
+def test_growth_from_the_annual_eps_through_the_rules():
+    eps = {"A": [1.0, 2.0, 3.0, 4.0], "B": [4.0, 3.0, 2.0, 1.0], "C": [2.0, 1.0, -1.0, -2.0]}
+    df = filter_tv(universe(*[tv_stock(tv_ticker=f"XETR:{t}", eps_fy_h=e) for t, e in eps.items()]),
+                   CFG, RATES, DATE)
+    df["eligible"] = df[RULE_COLUMNS].eq("pass").all(axis=1)
+    res = rank(df, CFG).set_index("tv_ticker")
+    assert res["eps_growth_3y"].round(6).to_dict() == {"XETR:A": -40.0, "XETR:B": 40.0, "XETR:C": 93.333333}
+    assert res["pct_growth"].to_dict() == {"XETR:A": 0, "XETR:B": 50, "XETR:C": 100}
+
+
+def test_eligible_stock_without_eps_growth_stops_the_ranking():
+    df = stocks([("XETR:A", 10, 8, 15, 7, 1.0, True), ("XETR:B", 10, 8, 15, math.nan, 1.0, True)])
+    with pytest.raises(ValueError, match="growth"):
+        rank(df, CFG)
 
 
 def test_negative_roe_ranked_last_and_reported():

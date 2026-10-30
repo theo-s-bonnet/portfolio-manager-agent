@@ -22,7 +22,7 @@ import pandas as pd
 from investment_agent.engine.data.fx import to_eur
 from investment_agent.engine.finance import is_number, least_squares_slope, safe_ratio
 from investment_agent.engine.statuses import FAIL, MISSING, PASS, WARNINGS_COLUMN, reason_column
-from investment_agent.strategies.higgons.scoring import COMPONENT_COLUMNS, ROE_COLUMN
+from investment_agent.strategies.higgons.scoring import COMPONENT_COLUMNS, GROWTH_COLUMN, ROE_COLUMN
 
 Rule = Callable[[pd.DataFrame, dict], tuple[pd.Series, pd.Series]]
 
@@ -150,7 +150,7 @@ def retained_roe(roe_ttm, net_income_ttm, shareholders_equity):
 # Annual histories (TradingView `*_fy_h` fields: one value per closed fiscal year, the last
 # closed fiscal year first). Element 0 is year N, element k is year N-k.
 REVENUE_HISTORY, EPS_HISTORY = "revenue_fy_h", "eps_fy_h"
-REVENUE_CAGR_3Y, EPS_GROWTH_3Y = "revenue_cagr_3y", "eps_growth_3y"
+REVENUE_CAGR_3Y, EPS_GROWTH_3Y = "revenue_cagr_3y", GROWTH_COLUMN
 # Why a 3-year growth measure is not computed.
 HISTORY_MISSING = "history_missing"            # fewer than growth_years + 1 values, or one missing (R4.11)
 DENOMINATOR = "denominator"                    # revenue of N-3 <= 0, or mean |EPS| = 0 (R4.12)

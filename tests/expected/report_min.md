@@ -34,10 +34,10 @@ Retained ROE: 1 stocks of the universe use the fallback (TradingView ROE missing
 
 ## Ranking
 
-| # | Stock | Name | Country | Sector | Score | Perf 6M | P/E | ROE | Rev. CAGR 5y | ND/EBITDA |
+| # | Stock | Name | Country | Sector | Score | Perf 6M | P/E | ROE | EPS growth 3y | ND/EBITDA |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 1 | MIL:BBB (BBB.MI) | Bravo SpA | Italy | Transportation | 75.0 | +40.0% (100) | 8.3† (0) | 25.0% (100) | 12.0% (100) | −0.5 (100) |
-| 2 | EURONEXT:AAA (AAA.PA) | Alpha SA | France | Producer Manufacturing | 25.0 | +25.0% (0) | 6.0 (100) | 18.2%‡ (0) | 8.0% (0) | 0.5 (0) |
+| 1 | MIL:BBB (BBB.MI) | Bravo SpA | Italy | Transportation | 75.0 | +40.0% (100) | 8.3† (0) | 25.0% (100) | 22.4% (100) | −0.5 (100) |
+| 2 | EURONEXT:AAA (AAA.PA) | Alpha SA | France | Producer Manufacturing | 25.0 | +25.0% (0) | 6.0 (100) | 18.2%‡ (0) | 3.5% (0) | 0.5 (0) |
 
 Raw value, then percentile rank among eligible stocks in parentheses.
 

@@ -97,6 +97,10 @@ def test_complete_run_without_intervention(tmp_path):
     assert {*history, "revenue_cagr_3y", "eps_growth_3y"} <= set(detail.columns)
     assert "revenue_fy_h" not in detail and "eps_fy_h" not in detail
     assert detail.set_index("tv_ticker").loc["XETR:AAA", "eps_fy_3"] == 4.5
+    ranked = detail.dropna(subset=["score"]).sort_values("rank")         # score and rank in the CSV
+    assert ranked["tv_ticker"].tolist() == ["XETR:AAA", "MIL:BBB"]
+    assert ranked["score"].tolist() == output.result.ranking["score"].tolist()
+    assert {"pct_momentum", "pct_growth"} <= set(detail.columns)
     assert not [c for c in detail.columns if c.startswith("yf_") or c == "yahoo_match"]
 
     text = output.report.read_text(encoding="utf-8")

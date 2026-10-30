@@ -85,7 +85,7 @@ _COMPONENT_DISPLAY = {
     "momentum": ("Perf 6M", "signed_pct"),
     "value": ("P/E", "number"),
     "quality": ("ROE", "pct"),
-    "growth": ("Rev. CAGR 5y", "pct"),
+    "growth": ("EPS growth 3y", "pct"),
     "balance_sheet": ("ND/EBITDA", "number"),
 }
 # Fallback values flagged in the ranking and counted under the funnel.
